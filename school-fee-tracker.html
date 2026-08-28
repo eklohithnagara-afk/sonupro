@@ -1,0 +1,1987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#4f46e5" />
+<title>School Fee Tracker — v0.2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22School%20Fee%20Tracker%22%2C%22short_name%22%3A%22FeeTrack%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%234f46e5%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NSIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwIiB5PSI2NSIgZm9udC1zaXplPSI1MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPvCfjrU8L3RleHQ%2BPC9zdmc%2B%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .slide-in { animation: slideIn 0.25s ease-out; }
+  .toast { animation: slideIn 0.3s ease-out; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+<div id="app"></div>
+<div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+<div id="modal-root"></div>
+
+<script>
+/* =========================================================
+   SCHOOL FEE TRACKER — v0.1.1
+   Fixes: Archived view + restore, family-based sibling UI,
+          multi-year switcher, state migration from v0.1
+   ========================================================= */
+
+const STORAGE_KEY = 'schoolFeeTracker_v0_1_1';
+
+/* ---------- DEFAULT STATE ---------- */
+const DEFAULT_STATE = {
+  schemaVersion: "0.1.1",
+  currentUser: null,
+  school: {
+    name: "EuroKids Preschool",
+    address: "12 Park Road, Bengaluru",
+    phone: "+91 98765 43210",
+    logoText: "EK"
+  },
+  settings: {
+    siblingDiscount: {
+      enabled: true,
+      type: "percent",
+      value: 10,
+      appliesTo: "all"
+    },
+    dayCareRate: 50
+  },
+  academicYears: [
+    { id: "ay_current", label: "2025-2026", startDate: "2025-06-01", endDate: "2026-03-31", status: "active" }
+  ],
+  currentYearId: "ay_current",
+  classes: [
+    { id: "c1", name: "Play Group" },
+    { id: "c2", name: "Nursery-A" },
+    { id: "c3", name: "Nursery-B" },
+    { id: "c4", name: "Euro Junior" },
+    { id: "c5", name: "Euro Senior" }
+  ],
+  academicFees: { "c1": 1500, "c2": 1800, "c3": 1800, "c4": 2200, "c5": 2500 },
+  routes: [
+    { id: "r1", name: "Route A - City Center", amount: 800, billingFrequency: "monthly" },
+    { id: "r2", name: "Route B - Suburbs", amount: 4500, billingFrequency: "half-yearly" }
+  ],
+  ecaActivities: [
+    { id: "e1", name: "Dance", amount: 500, billingFrequency: "monthly" },
+    { id: "e2", name: "Art & Craft Kit", amount: 1200, billingFrequency: "one-time" }
+  ],
+  students: [
+    { id: "s1", name: "Aarav Sharma",  classId: "c1", parentName: "Rohit Sharma",   parentPhone: "+919876543210", familyId: "f1", vanRouteId: "r1", vanFeeOverride: null, ecaIds: ["e1"], archived: false, createdAt: "2025-06-01" },
+    { id: "s2", name: "Anaya Sharma",  classId: "c2", parentName: "Rohit Sharma",   parentPhone: "+919876543210", familyId: "f1", vanRouteId: "r1", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" },
+    { id: "s3", name: "Vihaan Kumar",  classId: "c2", parentName: "Anil Kumar",     parentPhone: "+919876543211", familyId: "f2", vanRouteId: "", vanFeeOverride: null, ecaIds: ["e1","e2"], archived: false, createdAt: "2025-06-01" },
+    { id: "s4", name: "Ishaan Verma",  classId: "c3", parentName: "Sandeep Verma",  parentPhone: "+919876543212", familyId: "f3", vanRouteId: "r2", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" },
+    { id: "s5", name: "Diya Patel",    classId: "c3", parentName: "Manish Patel",   parentPhone: "+919876543213", familyId: "f4", vanRouteId: "", vanFeeOverride: null, ecaIds: ["e2"], archived: false, createdAt: "2025-06-01" },
+    { id: "s6", name: "Kabir Singh",   classId: "c4", parentName: "Harpreet Singh", parentPhone: "+919876543214", familyId: "f5", vanRouteId: "r1", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" },
+    { id: "s7", name: "Saanvi Reddy",  classId: "c4", parentName: "Pradeep Reddy",  parentPhone: "+919876543215", familyId: "f6", vanRouteId: "", vanFeeOverride: null, ecaIds: ["e1"], archived: false, createdAt: "2025-06-01" },
+    { id: "s8", name: "Arjun Nair",    classId: "c5", parentName: "Vinod Nair",     parentPhone: "+919876543216", familyId: "f7", vanRouteId: "r2", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" },
+    { id: "s9", name: "Myra Iyer",     classId: "c5", parentName: "Karthik Iyer",   parentPhone: "+919876543217", familyId: "f8", vanRouteId: "", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" },
+    { id: "s10",name: "Reyansh Joshi", classId: "c1", parentName: "Prakash Joshi",  parentPhone: "+919876543218", familyId: "f9", vanRouteId: "", vanFeeOverride: null, ecaIds: [], archived: false, createdAt: "2025-06-01" }
+  ],
+  invoices: [
+    { id: "inv_202506_s1",  studentId: "s1",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1500},{head:"van",label:"Van - Route A - City Center",amount:800},{head:"eca_e1",label:"ECA - Dance",amount:500}], discountAmount:0,   totalAmount:2800, paidAmount:2800, status:"paid",    createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s2",  studentId: "s2",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"van",label:"Van - Route A - City Center",amount:800}], discountAmount:260, totalAmount:2340, paidAmount:1000, status:"partial", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s3",  studentId: "s3",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"eca_e1",label:"ECA - Dance",amount:500},{head:"eca_e2",label:"ECA - Art & Craft Kit",amount:1200}], discountAmount:0, totalAmount:3500, paidAmount:3500, status:"paid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s4",  studentId: "s4",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"van",label:"Van - Route B - Suburbs",amount:4500}], discountAmount:0, totalAmount:6300, paidAmount:0, status:"unpaid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s5",  studentId: "s5",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"eca_e2",label:"ECA - Art & Craft Kit",amount:1200}], discountAmount:0, totalAmount:3000, paidAmount:3000, status:"paid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s6",  studentId: "s6",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:2200},{head:"van",label:"Van - Route A - City Center",amount:800}], discountAmount:0, totalAmount:3000, paidAmount:1500, status:"partial", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s7",  studentId: "s7",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:2200},{head:"eca_e1",label:"ECA - Dance",amount:500}], discountAmount:0, totalAmount:2700, paidAmount:2700, status:"paid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s8",  studentId: "s8",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:2500},{head:"van",label:"Van - Route B - Suburbs",amount:4500}], discountAmount:0, totalAmount:7000, paidAmount:0, status:"unpaid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s9",  studentId: "s9",  yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:2500}], discountAmount:0, totalAmount:2500, paidAmount:2500, status:"paid", createdAt:"2025-06-01T09:00:00.000Z" },
+    { id: "inv_202506_s10", studentId: "s10", yearId: "ay_current", month: "2025-06", items: [{head:"academic",label:"Academic Fee",amount:1500}], discountAmount:0, totalAmount:1500, paidAmount:1500, status:"paid", createdAt:"2025-06-01T09:00:00.000Z" },
+
+    { id: "inv_202507_s1",  studentId: "s1",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1500},{head:"van",label:"Van - Route A - City Center",amount:800},{head:"eca_e1",label:"ECA - Dance",amount:500}], discountAmount:0,   totalAmount:2800, paidAmount:2800, status:"paid",    createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s2",  studentId: "s2",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"van",label:"Van - Route A - City Center",amount:800}], discountAmount:260, totalAmount:2340, paidAmount:0, status:"unpaid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s3",  studentId: "s3",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1800},{head:"eca_e1",label:"ECA - Dance",amount:500}], discountAmount:0, totalAmount:2300, paidAmount:1000, status:"partial", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s4",  studentId: "s4",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1800}], discountAmount:0, totalAmount:1800, paidAmount:1800, status:"paid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s5",  studentId: "s5",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1800}], discountAmount:0, totalAmount:1800, paidAmount:0, status:"unpaid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s6",  studentId: "s6",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:2200},{head:"van",label:"Van - Route A - City Center",amount:800}], discountAmount:0, totalAmount:3000, paidAmount:3000, status:"paid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s7",  studentId: "s7",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:2200},{head:"eca_e1",label:"ECA - Dance",amount:500}], discountAmount:0, totalAmount:2700, paidAmount:0, status:"unpaid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s8",  studentId: "s8",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:2500}], discountAmount:0, totalAmount:2500, paidAmount:2500, status:"paid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s9",  studentId: "s9",  yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:2500}], discountAmount:0, totalAmount:2500, paidAmount:0, status:"unpaid", createdAt:"2025-07-01T09:00:00.000Z" },
+    { id: "inv_202507_s10", studentId: "s10", yearId: "ay_current", month: "2025-07", items: [{head:"academic",label:"Academic Fee",amount:1500}], discountAmount:0, totalAmount:1500, paidAmount:1500, status:"paid", createdAt:"2025-07-01T09:00:00.000Z" }
+  ],
+  payments: [
+    { id:"pay1",  invoiceId:"inv_202506_s1",  studentId:"s1",  amount:2800, mode:"Cash",          date:"2025-06-05", receiptNo:"RCP-2025-0001", createdAt:"2025-06-05T10:00:00.000Z" },
+    { id:"pay2",  invoiceId:"inv_202506_s2",  studentId:"s2",  amount:1000, mode:"UPI",           date:"2025-06-07", receiptNo:"RCP-2025-0002", createdAt:"2025-06-07T10:00:00.000Z" },
+    { id:"pay3",  invoiceId:"inv_202506_s3",  studentId:"s3",  amount:3500, mode:"Cash",          date:"2025-06-10", receiptNo:"RCP-2025-0003", createdAt:"2025-06-10T10:00:00.000Z" },
+    { id:"pay4",  invoiceId:"inv_202506_s5",  studentId:"s5",  amount:3000, mode:"Bank Transfer", date:"2025-06-08", receiptNo:"RCP-2025-0004", createdAt:"2025-06-08T10:00:00.000Z" },
+    { id:"pay5",  invoiceId:"inv_202506_s6",  studentId:"s6",  amount:1500, mode:"UPI",           date:"2025-06-12", receiptNo:"RCP-2025-0005", createdAt:"2025-06-12T10:00:00.000Z" },
+    { id:"pay6",  invoiceId:"inv_202506_s7",  studentId:"s7",  amount:2700, mode:"Cash",          date:"2025-06-09", receiptNo:"RCP-2025-0006", createdAt:"2025-06-09T10:00:00.000Z" },
+    { id:"pay7",  invoiceId:"inv_202506_s9",  studentId:"s9",  amount:2500, mode:"Card",          date:"2025-06-06", receiptNo:"RCP-2025-0007", createdAt:"2025-06-06T10:00:00.000Z" },
+    { id:"pay8",  invoiceId:"inv_202506_s10", studentId:"s10", amount:1500, mode:"Cash",          date:"2025-06-05", receiptNo:"RCP-2025-0008", createdAt:"2025-06-05T10:00:00.000Z" },
+    { id:"pay9",  invoiceId:"inv_202507_s1",  studentId:"s1",  amount:2800, mode:"Cash",          date:"2025-07-05", receiptNo:"RCP-2025-0009", createdAt:"2025-07-05T10:00:00.000Z" },
+    { id:"pay10", invoiceId:"inv_202507_s3",  studentId:"s3",  amount:1000, mode:"UPI",           date:"2025-07-08", receiptNo:"RCP-2025-0010", createdAt:"2025-07-08T10:00:00.000Z" },
+    { id:"pay11", invoiceId:"inv_202507_s4",  studentId:"s4",  amount:1800, mode:"Cash",          date:"2025-07-04", receiptNo:"RCP-2025-0011", createdAt:"2025-07-04T10:00:00.000Z" },
+    { id:"pay12", invoiceId:"inv_202507_s6",  studentId:"s6",  amount:3000, mode:"Bank Transfer", date:"2025-07-10", receiptNo:"RCP-2025-0012", createdAt:"2025-07-10T10:00:00.000Z" },
+    { id:"pay13", invoiceId:"inv_202507_s8",  studentId:"s8",  amount:2500, mode:"UPI",           date:"2025-07-06", receiptNo:"RCP-2025-0013", createdAt:"2025-07-06T10:00:00.000Z" },
+    { id:"pay14", invoiceId:"inv_202507_s10", studentId:"s10", amount:1500, mode:"Cash",          date:"2025-07-03", receiptNo:"RCP-2025-0014", createdAt:"2025-07-03T10:00:00.000Z" }
+  ],
+  dayCareLogs: [
+    { id:"dc1", studentId:"s1", date:"2025-11-10", checkIn:"14:00", checkOut:"17:00", hours:3, rate:50, amount:150, invoiced:false, invoiceId:null, createdAt:"2025-11-10T17:00:00.000Z" },
+    { id:"dc2", studentId:"s3", date:"2025-11-10", checkIn:"13:30", checkOut:"16:00", hours:3, rate:50, amount:150, invoiced:false, invoiceId:null, createdAt:"2025-11-10T16:00:00.000Z" },
+    { id:"dc3", studentId:"s6", date:"2025-11-12", checkIn:"15:00", checkOut:"18:15", hours:4, rate:50, amount:200, invoiced:false, invoiceId:null, createdAt:"2025-11-12T18:15:00.000Z" },
+    { id:"dc4", studentId:"s1", date:"2025-12-02", checkIn:"14:00", checkOut:"16:00", hours:2, rate:50, amount:100, invoiced:false, invoiceId:null, createdAt:"2025-12-02T16:00:00.000Z" }
+  ],
+  receiptCounters: { "2025": 14 },
+  auditLog: []
+};
+
+/* ---------- STATE MGMT + MIGRATION ---------- */
+let state = loadState();
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let s;
+    if (raw) s = JSON.parse(raw);
+    else {
+      // Try migrating from v0.1
+      const old = localStorage.getItem('schoolFeeTracker_v0_1');
+      if (old) {
+        s = JSON.parse(old);
+        toast("Migrated data from v0.1", "success");
+      } else {
+        s = JSON.parse(JSON.stringify(DEFAULT_STATE));
+      }
+    }
+    return migrateState(s);
+  } catch (e) {
+    console.error("Load failed", e);
+    return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  }
+}
+
+function migrateState(s) {
+  // Convert old single-year format to multi-year
+  if (!s.academicYears) {
+    const oldYear = {
+      id: "ay_" + Date.now().toString(36),
+      label: s.settings?.academicYear || "2025-2026",
+      startDate: s.settings?.academicYearStart || "2025-06-01",
+      endDate: s.settings?.academicYearEnd || "2026-03-31",
+      status: "active"
+    };
+    s.academicYears = [oldYear];
+    s.currentYearId = oldYear.id;
+    // Clean old keys
+    if (s.settings) {
+      delete s.settings.academicYear;
+      delete s.settings.academicYearStart;
+      delete s.settings.academicYearEnd;
+    }
+  }
+  if (!s.routes) s.routes = [];
+  if (!s.ecaActivities) s.ecaActivities = [];
+  s.students.forEach(st => {
+    if (st.vanRouteId === undefined) st.vanRouteId = "";
+    if (st.vanFeeOverride === undefined) st.vanFeeOverride = null;
+    if (!st.ecaIds) st.ecaIds = [];
+  });
+  if (!s.invoices) s.invoices = [];
+  if (!s.payments) s.payments = [];
+  if (!s.dayCareLogs) s.dayCareLogs = [];
+  if (s.settings && s.settings.dayCareRate === undefined) s.settings.dayCareRate = 50;
+  if (!s.receiptCounters) s.receiptCounters = {};
+  if (!s.schemaVersion) s.schemaVersion = "0.1.1";
+  return s;
+}
+
+function saveState(s = state) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+function resetState() { localStorage.removeItem(STORAGE_KEY); state = loadState(); render(); toast("Data reset to defaults", "info"); }
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `school-fee-tracker-v0.1.1-${Date.now()}.json`; a.click();
+  URL.revokeObjectURL(url);
+  toast("Exported JSON", "success");
+}
+function importJSON(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      state = migrateState(data); saveState(); render();
+      toast("Imported successfully", "success");
+    } catch (err) { toast("Invalid JSON file", "error"); }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- AUDIT ---------- */
+function audit(action, details) {
+  state.auditLog.unshift({
+    id: "a" + Date.now() + Math.random().toString(36).slice(2, 6),
+    user: state.currentUser?.name || "system",
+    action, details,
+    timestamp: new Date().toISOString()
+  });
+  if (state.auditLog.length > 200) state.auditLog = state.auditLog.slice(0, 200);
+  saveState();
+}
+
+/* ---------- TOAST ---------- */
+function toast(msg, type = "info") {
+  const colors = { success: "bg-emerald-600", error: "bg-rose-600", info: "bg-slate-700" };
+  const div = document.createElement("div");
+  div.className = `toast ${colors[type]} text-white px-4 py-2 rounded-lg shadow-lg text-sm`;
+  div.textContent = msg;
+  document.getElementById("toast-container").appendChild(div);
+  setTimeout(() => div.remove(), 2500);
+}
+
+/* ---------- MODAL ---------- */
+function openModal(html) {
+  document.getElementById("modal-root").innerHTML = `<div class="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center justify-center" onclick="if(event.target===this) closeModal()">
+    <div class="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto hide-scrollbar slide-in">${html}</div>
+  </div>`;
+}
+function closeModal() { document.getElementById("modal-root").innerHTML = ""; }
+
+/* ---------- HELPERS ---------- */
+const uid = (p="id") => p + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+const fmtDate = d => new Date(d).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" });
+const fmtDateTime = d => new Date(d).toLocaleString("en-IN", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+const className = id => state.classes.find(c => c.id === id)?.name || "—";
+const siblingsOf = student => student.familyId ? state.students.filter(s => s.familyId === student.familyId) : [];
+
+// Unique families: grouped by familyId
+function getFamilies() {
+  const map = new Map();
+  state.students.forEach(s => {
+    if (!s.familyId) return;
+    if (!map.has(s.familyId)) {
+      map.set(s.familyId, { id: s.familyId, parentName: s.parentName, parentPhone: s.parentPhone, members: [] });
+    }
+    map.get(s.familyId).members.push(s);
+  });
+  return Array.from(map.values());
+}
+
+function getCurrentYear() {
+  return state.academicYears.find(y => y.id === state.currentYearId) || state.academicYears[0];
+}
+
+function isReadOnly() {
+  return getCurrentYear()?.status === "archived";
+}
+
+/* =========================================================
+   BILLING & PAYMENTS HELPERS
+   ========================================================= */
+const fmtMoney = n => "₹" + Number(n||0).toLocaleString("en-IN");
+
+function getYearMonths(y) {
+  const months = [];
+  const d = new Date(y.startDate);
+  for (let i = 0; i < 10; i++) {
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label = d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    months.push({ key, label });
+    d.setMonth(d.getMonth()+1);
+  }
+  return months;
+}
+function monthLabel(key) {
+  const [y,m] = key.split("-");
+  return new Date(Number(y), Number(m)-1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+function invoicesForYear(yearId = state.currentYearId) {
+  return state.invoices.filter(i => i.yearId === yearId);
+}
+
+function invoiceBalance(inv) { return inv.totalAmount - inv.paidAmount; }
+
+function generateBillsForMonth(monthKey) {
+  const yearId = state.currentYearId;
+  const sd = state.settings.siblingDiscount;
+  const activeStudents = state.students.filter(s => !s.archived);
+  const yr = getCurrentYear();
+  const monthIdx = getYearMonths(yr).findIndex(m => m.key === monthKey);
+
+  // Determine sibling order per family (first-created child pays full price)
+  const familyOrder = {};
+  getFamilies().forEach(f => {
+    const activeMembers = f.members.filter(m => !m.archived).sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+    activeMembers.forEach((m, idx) => familyOrder[m.id] = idx);
+  });
+
+  let created = 0;
+  activeStudents.forEach(s => {
+    const exists = state.invoices.some(i => i.studentId === s.id && i.yearId === yearId && i.month === monthKey);
+    if (exists) return;
+
+    const items = [{ head: "academic", label: "Academic Fee", amount: state.academicFees[s.classId] || 0 }];
+
+    if (s.vanRouteId) {
+      const route = state.routes.find(r => r.id === s.vanRouteId);
+      if (route) {
+        const applicable = route.billingFrequency === "monthly" || (route.billingFrequency === "half-yearly" && (monthIdx === 0 || monthIdx === 5));
+        if (applicable) {
+          const vanAmount = s.vanFeeOverride != null ? s.vanFeeOverride : route.amount;
+          items.push({ head: "van", label: `Van - ${route.name}`, amount: vanAmount, routeId: route.id });
+        }
+      }
+    }
+
+    (s.ecaIds || []).forEach(ecaId => {
+      const activity = state.ecaActivities.find(a => a.id === ecaId);
+      if (!activity) return;
+      if (activity.billingFrequency === "one-time") {
+        const alreadyBilled = state.invoices.some(i => i.studentId === s.id && i.items.some(it => it.head === `eca_${ecaId}`));
+        if (alreadyBilled) return;
+      }
+      items.push({ head: `eca_${ecaId}`, label: `ECA - ${activity.name}`, amount: activity.amount });
+    });
+
+    const pendingDayCareLogs = state.dayCareLogs.filter(l => l.studentId === s.id && !l.invoiced && l.date.slice(0,7) === monthKey);
+    if (pendingDayCareLogs.length) {
+      const totalHours = pendingDayCareLogs.reduce((sum,l) => sum + l.hours, 0);
+      const totalAmount = pendingDayCareLogs.reduce((sum,l) => sum + l.amount, 0);
+      items.push({ head: "daycare", label: `Day Care (${totalHours} hr)`, amount: totalAmount });
+    }
+
+    const isSiblingDiscountEligible = sd.enabled && s.familyId && (familyOrder[s.id] || 0) > 0;
+    let discountAmount = 0;
+    if (isSiblingDiscountEligible) {
+      items.forEach(it => {
+        const scoped = sd.appliesTo === "all" || (sd.appliesTo === "academic" && it.head === "academic");
+        if (!scoped) return;
+        const d = sd.type === "percent" ? Math.round(it.amount * sd.value / 100) : Math.min(sd.value, it.amount);
+        discountAmount += d;
+      });
+    }
+
+    const totalAmount = items.reduce((sum,it) => sum + it.amount, 0) - discountAmount;
+    const invoice = {
+      id: uid("inv"),
+      studentId: s.id,
+      yearId,
+      month: monthKey,
+      items,
+      discountAmount,
+      totalAmount,
+      paidAmount: 0,
+      status: "unpaid",
+      createdAt: new Date().toISOString()
+    };
+    state.invoices.push(invoice);
+    pendingDayCareLogs.forEach(l => { l.invoiced = true; l.invoiceId = invoice.id; });
+    created++;
+  });
+
+  if (created > 0) {
+    audit("billing", `Generated ${created} bill(s) for ${monthLabel(monthKey)}`);
+    saveState();
+  }
+  return created;
+}
+
+function nextReceiptNumber() {
+  const yr = getCurrentYear();
+  const calYear = yr.label.split("-")[0];
+  state.receiptCounters[calYear] = (state.receiptCounters[calYear] || 0) + 1;
+  return `RCP-${calYear}-${String(state.receiptCounters[calYear]).padStart(4,"0")}`;
+}
+
+function recordPayment(invoiceId, amount, mode, date) {
+  const inv = state.invoices.find(i => i.id === invoiceId);
+  const balance = invoiceBalance(inv);
+  if (amount <= 0 || amount > balance) { toast("Enter a valid amount (up to the balance due)", "error"); return null; }
+  const payment = {
+    id: uid("pay"),
+    invoiceId,
+    studentId: inv.studentId,
+    amount,
+    mode,
+    date,
+    receiptNo: nextReceiptNumber(),
+    createdAt: new Date().toISOString()
+  };
+  state.payments.unshift(payment);
+  inv.paidAmount += amount;
+  inv.status = inv.paidAmount >= inv.totalAmount ? "paid" : (inv.paidAmount > 0 ? "partial" : "unpaid");
+  const student = state.students.find(s => s.id === inv.studentId);
+  audit("payment", `${fmtMoney(amount)} received from ${student.name} (${monthLabel(inv.month)}) via ${mode} — ${payment.receiptNo}`);
+  saveState();
+  return payment;
+}
+
+/* ---------- DAY CARE ---------- */
+function computeDayCareHours(checkIn, checkOut) {
+  const [ih, im] = checkIn.split(":").map(Number);
+  const [oh, om] = checkOut.split(":").map(Number);
+  const diffMin = (oh*60+om) - (ih*60+im);
+  if (diffMin <= 0) return 0;
+  return Math.max(1, Math.ceil(diffMin / 60));
+}
+
+function logDayCare(studentId, date, checkIn, checkOut) {
+  const hours = computeDayCareHours(checkIn, checkOut);
+  if (hours <= 0) { toast("Check-out must be after check-in", "error"); return null; }
+  const rate = state.settings.dayCareRate;
+  const log = { id: uid("dc"), studentId, date, checkIn, checkOut, hours, rate, amount: hours*rate, invoiced: false, invoiceId: null, createdAt: new Date().toISOString() };
+  state.dayCareLogs.push(log);
+  const s = state.students.find(x => x.id === studentId);
+  audit("daycare", `${s.name} — Day Care logged ${checkIn}–${checkOut} (${hours} hr) on ${fmtDate(date)}`);
+  saveState();
+  return log;
+}
+
+function deleteDayCareLog(id) {
+  const log = state.dayCareLogs.find(l => l.id === id);
+  if (log.invoiced) { toast("Cannot delete — already billed", "error"); return; }
+  if (!confirm("Delete this day care entry?")) return;
+  state.dayCareLogs = state.dayCareLogs.filter(l => l.id !== id);
+  audit("daycare", `Day care entry deleted for ${fmtDate(log.date)}`);
+  saveState(); render();
+  toast("Entry deleted", "info");
+}
+
+function statusBadge(status) {
+  const map = {
+    paid: "bg-emerald-100 text-emerald-700",
+    partial: "bg-amber-100 text-amber-700",
+    unpaid: "bg-rose-100 text-rose-700"
+  };
+  return `<span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${map[status]}">${status.toUpperCase()}</span>`;
+}
+
+/* ---------- WHATSAPP REMINDER ---------- */
+function sendWhatsAppReminder(studentId) {
+  const s = state.students.find(x => x.id === studentId);
+  const pending = invoicesForYear().filter(i => i.studentId === studentId && i.status !== "paid").sort((a,b) => a.month.localeCompare(b.month));
+  if (pending.length === 0) { toast("No pending dues for this student", "info"); return; }
+  const balance = pending.reduce((sum,i) => sum + invoiceBalance(i), 0);
+  const months = pending.map(i => monthLabel(i.month)).join(", ");
+  const message = `Dear ${s.parentName}, this is a gentle reminder that fees of ${fmtMoney(balance)} for ${s.name} (${className(s.classId)}) are pending for ${months}. Kindly clear at your earliest convenience.\n\n- ${state.school.name}`;
+  const digits = s.parentPhone.replace(/[^0-9]/g, "");
+  const url = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+  window.open(url, "_blank");
+  audit("reminder", `WhatsApp reminder sent to ${s.parentName} for ${s.name} (${fmtMoney(balance)} due)`);
+}
+
+/* =========================================================
+   REPORTS HELPERS
+   ========================================================= */
+function headLabel(head) {
+  if (head === "academic") return "Academic";
+  if (head === "van") return "Van";
+  if (head === "daycare") return "Day Care";
+  if (head.startsWith("eca_")) {
+    const a = state.ecaActivities.find(x => x.id === head.slice(4));
+    return a ? `ECA - ${a.name}` : "ECA";
+  }
+  return head;
+}
+
+// Approximate collected-per-item by allocating each invoice's paidAmount
+// proportionally across its line items (no per-item payment allocation exists yet).
+function itemCollected(inv, item) {
+  const grossSum = inv.items.reduce((s,it) => s+it.amount, 0);
+  if (grossSum <= 0) return 0;
+  return (item.amount / grossSum) * inv.paidAmount;
+}
+
+function printReport(title, bodyHtml) {
+  const ts = new Date().toLocaleString("en-IN", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+  const html = `<html><head><title>${title} - ${fmtDate(new Date())}</title><style>
+      body{font-family:-apple-system,Arial,sans-serif;padding:24px;color:#1e293b;}
+      h1{font-size:18px;margin:0 0 2px;} .muted{color:#64748b;font-size:12px;margin:0 0 12px;}
+      table{width:100%;border-collapse:collapse;margin-top:8px;}
+      th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left;font-size:12px;}
+      th{background:#f8fafc;} .right{text-align:right;} .total-row td{font-weight:bold;border-top:2px solid #cbd5e1;}
+      footer{margin-top:24px;font-size:10px;color:#94a3b8;text-align:center;}
+    </style></head><body onload="window.print()">
+      <h1>${state.school.name}</h1>
+      <p class="muted">${title} · ${getCurrentYear().label}</p>
+      ${bodyHtml}
+      <footer>Generated ${ts}</footer>
+    </body></html>`;
+  const win = window.open("", "_blank");
+  win.document.write(html); win.document.close();
+}
+
+/* =========================================================
+   ROUTER
+   ========================================================= */
+let route = { name: "login", params: {} };
+function navigate(name, params = {}) { route = { name, params }; render(); }
+
+/* =========================================================
+   VIEWS
+   ========================================================= */
+const VIEWS = {
+  login: renderLogin,
+  dashboard: renderDashboard,
+  students: renderStudents,
+  studentDetail: renderStudentDetail,
+  billing: renderBilling,
+  daycare: renderDayCarePage,
+  reports: renderReports,
+  settings: renderSettings,
+  audit: renderAudit
+};
+
+/* ---------- LOGIN ---------- */
+function renderLogin() {
+  return `
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 p-4">
+    <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 slide-in">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 mx-auto bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-bold">${state.school.logoText}</div>
+        <h1 class="mt-4 text-xl font-bold text-slate-800">${state.school.name}</h1>
+        <p class="text-sm text-slate-500">Fee Tracker v0.2</p>
+      </div>
+      <button onclick="loginAs('Admin')" class="w-full mb-3 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-medium">Sign in as Admin</button>
+      <button onclick="loginAs('Manager')" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-800 py-3 rounded-xl font-medium">Sign in as Manager</button>
+      <p class="text-xs text-slate-400 text-center mt-4">Prototype — no real authentication</p>
+    </div>
+  </div>`;
+}
+function loginAs(role) {
+  state.currentUser = { name: role, role, loginAt: new Date().toISOString() };
+  audit("login", `${role} signed in`);
+  saveState();
+  navigate("dashboard");
+}
+
+/* ---------- DASHBOARD ---------- */
+function renderDashboard() {
+  const total = state.students.filter(s=>!s.archived).length;
+  const archived = state.students.filter(s=>s.archived).length;
+  const siblings = new Set(state.students.filter(s=>!s.archived && s.familyId).map(s=>s.familyId)).size;
+  const classes = state.classes.length;
+  const recent = state.auditLog.slice(0, 5);
+  const yr = getCurrentYear();
+  const yearInvoices = invoicesForYear();
+  const collected = yearInvoices.reduce((sum,i) => sum + i.paidAmount, 0);
+  const outstanding = yearInvoices.reduce((sum,i) => sum + invoiceBalance(i), 0);
+
+  return layout("Dashboard", `
+    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-4 text-white mb-4">
+      <p class="text-xs opacity-80">Currently Viewing</p>
+      <p class="text-lg font-bold">${yr.label}</p>
+      <p class="text-xs opacity-80">${fmtDate(yr.startDate)} – ${fmtDate(yr.endDate)} · ${yr.status==='active'?'Active':'🔒 Archived'}</p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Active Students</p>
+        <p class="text-2xl font-bold text-indigo-600">${total}</p>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Archived</p>
+        <p class="text-2xl font-bold text-slate-400">${archived}</p>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Families</p>
+        <p class="text-2xl font-bold text-amber-600">${siblings}</p>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Classes</p>
+        <p class="text-2xl font-bold text-emerald-600">${classes}</p>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Collected (Year)</p>
+        <p class="text-xl font-bold text-emerald-600">${fmtMoney(collected)}</p>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm">
+        <p class="text-xs text-slate-500">Outstanding</p>
+        <p class="text-xl font-bold text-rose-600">${fmtMoney(outstanding)}</p>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-white rounded-2xl shadow-sm p-4">
+      <h3 class="font-semibold text-slate-700 mb-3">Quick Actions</h3>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <button onclick="navigate('students')" class="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-indigo-700 font-medium">👨‍🎓 Students</button>
+        <button onclick="navigate('billing')" class="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-emerald-700 font-medium">💳 Billing</button>
+        <button onclick="navigate('daycare')" class="p-3 bg-sky-50 hover:bg-sky-100 rounded-xl text-sky-700 font-medium">🧸 Day Care</button>
+        <button onclick="navigate('reports')" class="p-3 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-700 font-medium">📊 Reports</button>
+        <button onclick="navigate('settings')" class="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-700 font-medium">⚙️ Settings</button>
+        <button onclick="navigate('audit')" class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 font-medium">📋 Audit Log</button>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-white rounded-2xl shadow-sm p-4">
+      <h3 class="font-semibold text-slate-700 mb-3">Recent Activity</h3>
+      ${recent.length === 0 ? `<p class="text-sm text-slate-400">No activity yet</p>` :
+        recent.map(a => `
+          <div class="text-sm py-2 border-b border-slate-100 last:border-0">
+            <p class="text-slate-700"><b>${a.user}</b> — ${a.action}</p>
+            <p class="text-xs text-slate-400">${fmtDateTime(a.timestamp)}</p>
+          </div>`).join("")}
+    </div>
+
+    <div class="mt-6 text-center text-xs text-slate-400">
+      v0.2 — Transport, Day Care, ECA, Reports coming in v0.3+
+    </div>
+  `);
+}
+
+/* ---------- STUDENTS LIST (with Active/Archived toggle) ---------- */
+function renderStudents() {
+  const view = route.params.view || "active"; // "active" | "archived"
+  const list = state.students.filter(s => view === "active" ? !s.archived : s.archived);
+  const totalActive = state.students.filter(s=>!s.archived).length;
+  const totalArchived = state.students.filter(s=>s.archived).length;
+
+  return layout("Students", `
+    <div class="flex gap-2 mb-3">
+      <button onclick="navigate('students',{view:'active'})" class="flex-1 py-2 rounded-xl text-sm font-medium ${view==='active'?'bg-indigo-600 text-white':'bg-white text-slate-600'}">Active (${totalActive})</button>
+      <button onclick="navigate('students',{view:'archived'})" class="flex-1 py-2 rounded-xl text-sm font-medium ${view==='archived'?'bg-slate-700 text-white':'bg-white text-slate-600'}">Archived (${totalArchived})</button>
+    </div>
+
+    <div class="flex gap-2 mb-3">
+      <input id="search" oninput="filterStudents()" placeholder="Search by name or parent..." class="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm" />
+      ${view === 'active' ? `<button onclick="openStudentForm()" class="bg-indigo-600 text-white px-4 rounded-xl text-sm font-medium">+ Add</button>` : ''}
+    </div>
+
+    ${view === 'archived' ? `
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 text-xs text-amber-800">
+        🔒 Viewing archived students. Tap "Restore" to bring them back to active status. Financial data is preserved.
+      </div>
+    ` : ''}
+
+    <div id="student-list" class="space-y-2">
+      ${list.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No ${view} students</p>` : list.map(s => studentCard(s, view)).join("")}
+    </div>
+  `);
+}
+
+function studentCard(s, view) {
+  const sibs = siblingsOf(s).filter(x => x.id !== s.id && !x.archived);
+  return `
+  <div class="bg-white rounded-2xl shadow-sm p-4 cursor-pointer hover:shadow-md transition" onclick="navigate('studentDetail', {id:'${s.id}'})">
+    <div class="flex justify-between items-start">
+      <div class="flex-1">
+        <p class="font-semibold text-slate-800">${s.name}</p>
+        <p class="text-xs text-slate-500">${className(s.classId)} · ${s.parentName}</p>
+        <p class="text-xs text-slate-400">${s.parentPhone}</p>
+      </div>
+      <div class="flex flex-col items-end gap-1">
+        ${sibs.length ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">${sibs.length} sibling${sibs.length>1?'s':''}</span>` : ''}
+        ${view === 'archived' ? `<span class="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">Archived</span>` : ''}
+      </div>
+    </div>
+    ${view === 'archived' ? `
+      <div class="mt-3 flex gap-2">
+        <button onclick="event.stopPropagation(); restoreStudent('${s.id}')" class="flex-1 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-medium">↻ Restore to Active</button>
+        <button onclick="event.stopPropagation(); navigate('studentDetail', {id:'${s.id}'})" class="flex-1 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium">View Details</button>
+      </div>
+    ` : ''}
+  </div>`;
+}
+
+function filterStudents() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const view = route.params.view || "active";
+  const filtered = state.students.filter(s => (view === "active" ? !s.archived : s.archived) && (s.name.toLowerCase().includes(q) || s.parentName.toLowerCase().includes(q)));
+  document.getElementById("student-list").innerHTML = filtered.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No matches</p>` : filtered.map(s => studentCard(s, view)).join("");
+}
+
+function restoreStudent(id) {
+  const s = state.students.find(x => x.id === id);
+  if (!confirm(`Restore ${s.name} to active students?`)) return;
+  s.archived = false;
+  audit("restore", `Student ${s.name} restored from archive`);
+  saveState(); render();
+  toast(`${s.name} restored`, "success");
+}
+
+/* ---------- ADD / EDIT STUDENT (FAMILY-BASED SIBLING UI) ---------- */
+function openStudentForm(editId = null) {
+  const s = editId ? state.students.find(x => x.id === editId) : { name:"", classId: state.classes[0].id, parentName:"", parentPhone:"", familyId:"", vanRouteId:"", vanFeeOverride:null };
+  const isEdit = !!editId;
+  const families = getFamilies();
+  openModal(`
+    <h3 class="text-lg font-bold mb-4">${isEdit ? "Edit" : "Add"} Student</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Student Name *</label>
+        <input id="f-name" value="${s.name}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Class *</label>
+        <select id="f-class" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm">
+          ${state.classes.map(c => `<option value="${c.id}" ${c.id===s.classId?'selected':''}>${c.name}</option>`).join("")}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Parent Name *</label>
+        <input id="f-parent" value="${s.parentName}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Parent Phone (with country code) *</label>
+        <input id="f-phone" value="${s.parentPhone}" placeholder="+91XXXXXXXXXX" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Family / Siblings</label>
+        <select id="f-family" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm">
+          <option value="">— No family link —</option>
+          ${families.filter(f => f.id !== s.familyId).map(f => `
+            <option value="${f.id}">${f.parentName}'s family (${f.members.length} member${f.members.length>1?'s':''}: ${f.members.slice(0,2).map(m=>m.name).join(', ')}${f.members.length>2?', +'+(f.members.length-2)+' more':''})</option>
+          `).join("")}
+          <option value="__new__">+ Create new family for this student</option>
+        </select>
+        ${s.familyId ? `<p class="text-xs text-amber-700 mt-1">ℹ This student is currently linked to a family. Changing it will affect sibling discount calculation.</p>` : ''}
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Van Route</label>
+        <select id="f-route" onchange="document.getElementById('f-route-override-wrap').classList.toggle('hidden', !this.value)" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm">
+          <option value="">— No van —</option>
+          ${state.routes.map(r => `<option value="${r.id}" ${r.id===s.vanRouteId?'selected':''}>${r.name} (${fmtMoney(r.amount)} / ${r.billingFrequency==='monthly'?'mo':'half-yr'})</option>`).join("")}
+        </select>
+      </div>
+      <div id="f-route-override-wrap" class="${s.vanRouteId ? '' : 'hidden'}">
+        <label class="text-xs text-slate-500">Van Fee Override (optional)</label>
+        <input id="f-route-override" type="number" value="${s.vanFeeOverride ?? ''}" placeholder="Leave blank to use route's default fee" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">ECA Activities</label>
+        <div class="mt-1 space-y-1 border border-slate-200 rounded-xl p-2">
+          ${state.ecaActivities.length === 0 ? `<p class="text-xs text-slate-400 px-1">No activities set up yet</p>` : state.ecaActivities.map(a => `
+            <label class="flex items-center gap-2 text-sm px-1 py-1">
+              <input type="checkbox" class="f-eca" value="${a.id}" ${(s.ecaIds||[]).includes(a.id)?'checked':''} />
+              <span>${a.name} <span class="text-xs text-slate-400">(${fmtMoney(a.amount)} · ${a.billingFrequency==='monthly'?'monthly':'one-time'})</span></span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      ${isEdit ? `<button onclick="deleteStudent('${s.id}')" class="px-4 py-2 bg-rose-100 text-rose-700 rounded-xl text-sm">Archive</button>` : ''}
+      <button onclick="closeModal()" class="flex-1 px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="saveStudent('${editId||''}')" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Save</button>
+    </div>
+  `);
+}
+
+function saveStudent(editId) {
+  const name = document.getElementById("f-name").value.trim();
+  const classId = document.getElementById("f-class").value;
+  const parentName = document.getElementById("f-parent").value.trim();
+  const parentPhone = document.getElementById("f-phone").value.trim();
+  let familyId = document.getElementById("f-family").value;
+  const vanRouteId = document.getElementById("f-route").value;
+  const overrideRaw = document.getElementById("f-route-override").value;
+  const vanFeeOverride = vanRouteId && overrideRaw !== "" ? Number(overrideRaw) : null;
+  const ecaIds = Array.from(document.querySelectorAll(".f-eca:checked")).map(el => el.value);
+  if (!name || !parentName || !parentPhone) { toast("Please fill all required fields", "error"); return; }
+
+  if (editId) {
+    const s = state.students.find(x => x.id === editId);
+    s.name = name; s.classId = classId; s.parentName = parentName; s.parentPhone = parentPhone;
+    s.vanRouteId = vanRouteId; s.vanFeeOverride = vanFeeOverride; s.ecaIds = ecaIds;
+    if (familyId === "__new__") s.familyId = uid("f");
+    else s.familyId = familyId || "";
+    audit("update", `Student ${name} updated`);
+  } else {
+    if (familyId === "__new__") familyId = uid("f");
+    const newStudent = { id: uid("s"), name, classId, parentName, parentPhone, familyId: familyId || "", vanRouteId, vanFeeOverride, ecaIds, archived: false, createdAt: new Date().toISOString() };
+    state.students.push(newStudent);
+    audit("create", `Student ${name} added${familyId ? ' (linked to family)' : ''}`);
+  }
+  saveState(); closeModal(); render();
+  toast("Saved", "success");
+}
+
+function deleteStudent(id) {
+  const s = state.students.find(x => x.id === id);
+  if (!confirm(`Archive ${s.name}? You can restore them later from the Archived tab.`)) return;
+  s.archived = true;
+  audit("archive", `Student ${s.name} archived`);
+  saveState(); closeModal(); render();
+  toast("Student archived", "info");
+}
+
+/* ---------- STUDENT DETAIL ---------- */
+function renderStudentDetail() {
+  const s = state.students.find(x => x.id === route.params.id);
+  if (!s) return layout("Not Found", `<p>Student not found</p>`);
+  const allSibs = siblingsOf(s).filter(x => x.id !== s.id);
+  const activeSibs = allSibs.filter(x => !x.archived);
+  const archivedSibs = allSibs.filter(x => x.archived);
+  return layout(s.name, `
+    <button onclick="navigate('students')" class="text-sm text-indigo-600 mb-3">← Back to students</button>
+    <div class="bg-white rounded-2xl shadow-sm p-5">
+      <div class="flex items-center gap-2 mb-2">
+        <p class="font-semibold text-lg">${s.name}</p>
+        ${s.archived ? '<span class="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">Archived</span>' : ''}
+      </div>
+      <p class="text-sm text-slate-600">${className(s.classId)}</p>
+      <hr class="my-3"/>
+      <p class="text-xs text-slate-500">Parent</p>
+      <p class="font-semibold">${s.parentName}</p>
+      <p class="text-sm text-slate-600">${s.parentPhone}</p>
+      <hr class="my-3"/>
+      <p class="text-xs text-slate-500">Transport</p>
+      ${s.vanRouteId ? (() => {
+        const r = state.routes.find(x => x.id === s.vanRouteId);
+        return r ? `<p class="text-sm">${r.name} · ${fmtMoney(s.vanFeeOverride ?? r.amount)}${s.vanFeeOverride!=null?' (override)':''} / ${r.billingFrequency==='monthly'?'month':'half-year'}</p>` : `<p class="text-sm text-slate-400">Route no longer exists</p>`;
+      })() : `<p class="text-sm text-slate-400">— No van —</p>`}
+      <hr class="my-3"/>
+      <p class="text-xs text-slate-500">ECA Activities</p>
+      ${(s.ecaIds||[]).length ? `<p class="text-sm">${s.ecaIds.map(id => state.ecaActivities.find(a=>a.id===id)?.name).filter(Boolean).join(", ")}</p>` : `<p class="text-sm text-slate-400">— None enrolled —</p>`}
+      <hr class="my-3"/>
+      <p class="text-xs text-slate-500">Family Members</p>
+      ${activeSibs.length ? `<p class="text-sm">${activeSibs.map(x => x.name + " (" + className(x.classId) + ")").join(", ")}</p>` : ''}
+      ${archivedSibs.length ? `<p class="text-xs text-slate-400 mt-1">Archived: ${archivedSibs.map(x => x.name).join(", ")}</p>` : ''}
+      ${!activeSibs.length && !archivedSibs.length ? `<p class="text-sm text-slate-400">— No siblings linked —</p>` : ''}
+      <hr class="my-3"/>
+      <p class="text-xs text-slate-500">Joined</p>
+      <p class="text-sm">${fmtDate(s.createdAt)}</p>
+    </div>
+    <div class="mt-3 flex gap-2">
+      <button onclick="openStudentForm('${s.id}')" class="flex-1 py-2 bg-slate-100 rounded-xl text-sm font-medium">Edit</button>
+      ${s.archived ? `<button onclick="restoreStudent('${s.id}')" class="flex-1 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-medium">Restore</button>` : ''}
+      ${activeSibs.length ? `<button onclick="navigate('studentDetail', {id:'${activeSibs[0].id}'})" class="flex-1 py-2 bg-amber-100 text-amber-700 rounded-xl text-sm font-medium">View Sibling</button>` : ''}
+      ${!s.archived && !isReadOnly() ? `<button onclick="openDayCareForm(new Date().toISOString().slice(0,10)); setTimeout(()=>document.getElementById('dc-student').value='${s.id}',0)" class="flex-1 py-2 bg-sky-100 text-sky-700 rounded-xl text-sm font-medium">🧸 Log Day Care</button>` : ''}
+    </div>
+    ${renderStudentFeeSection(s)}
+  `, "students");
+}
+
+function renderStudentFeeSection(s) {
+  const invs = invoicesForYear().filter(i => i.studentId === s.id).sort((a,b) => a.month.localeCompare(b.month));
+  const totalBilled = invs.reduce((sum,i) => sum + i.totalAmount, 0);
+  const totalPaid = invs.reduce((sum,i) => sum + i.paidAmount, 0);
+  const totalDue = totalBilled - totalPaid;
+  return `
+    <div class="mt-4 bg-white rounded-2xl shadow-sm p-5">
+      <h3 class="font-semibold mb-3">Fees — ${getCurrentYear().label}</h3>
+      <div class="grid grid-cols-3 gap-2 text-center mb-3">
+        <div><p class="text-xs text-slate-500">Billed</p><p class="font-bold text-slate-800">${fmtMoney(totalBilled)}</p></div>
+        <div><p class="text-xs text-slate-500">Paid</p><p class="font-bold text-emerald-600">${fmtMoney(totalPaid)}</p></div>
+        <div><p class="text-xs text-slate-500">Due</p><p class="font-bold text-rose-600">${fmtMoney(totalDue)}</p></div>
+      </div>
+      ${totalDue > 0 ? `<button onclick="sendWhatsAppReminder('${s.id}')" class="w-full mb-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-medium">📲 Send Reminder via WhatsApp</button>` : ''}
+      ${invs.length === 0 ? `<p class="text-sm text-slate-400 text-center py-3">No bills generated yet for this student</p>` : `
+        <div class="space-y-2">
+          ${invs.map(i => `
+            <div class="border border-slate-100 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-slate-800">${monthLabel(i.month)}</p>
+                <p class="text-xs text-slate-500">${fmtMoney(i.totalAmount)}${i.discountAmount ? ` <span class="text-amber-600">(sibling discount −${fmtMoney(i.discountAmount)})</span>` : ''} · Paid ${fmtMoney(i.paidAmount)}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                ${statusBadge(i.status)}
+                ${i.status !== 'paid' && !isReadOnly() ? `<button onclick="openPaymentModal('${i.id}')" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded-lg">Pay</button>` : ''}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `}
+    </div>`;
+}
+
+/* ---------- BILLING ---------- */
+function renderBilling() {
+  const view = route.params.view || "month";
+  const yr = getCurrentYear();
+  const months = getYearMonths(yr);
+  const selectedMonth = route.params.month || months[0].key;
+  const yearInvoices = invoicesForYear();
+
+  const monthInvoices = yearInvoices.filter(i => i.month === selectedMonth);
+  const outstandingInvoices = yearInvoices.filter(i => i.status !== "paid").sort((a,b) => a.month.localeCompare(b.month));
+
+  const monthBilled = monthInvoices.reduce((s,i)=>s+i.totalAmount,0);
+  const monthCollected = monthInvoices.reduce((s,i)=>s+i.paidAmount,0);
+  const monthOutstanding = monthBilled - monthCollected;
+
+  return layout("Billing", `
+    <div class="flex gap-2 mb-3">
+      <button onclick="navigate('billing',{view:'month', month:'${selectedMonth}'})" class="flex-1 py-2 rounded-xl text-sm font-medium ${view==='month'?'bg-indigo-600 text-white':'bg-white text-slate-600'}">By Month</button>
+      <button onclick="navigate('billing',{view:'outstanding'})" class="flex-1 py-2 rounded-xl text-sm font-medium ${view==='outstanding'?'bg-slate-700 text-white':'bg-white text-slate-600'}">Outstanding (${outstandingInvoices.length})</button>
+    </div>
+
+    ${isReadOnly() ? `<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 text-xs text-amber-800">🔒 ${yr.label} is archived — read-only.</div>` : ''}
+
+    ${view === 'month' ? `
+      <div class="flex gap-2 mb-3">
+        <select onchange="navigate('billing',{view:'month', month:this.value})" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm">
+          ${months.map(m => `<option value="${m.key}" ${m.key===selectedMonth?'selected':''}>${m.label}</option>`).join("")}
+        </select>
+        ${!isReadOnly() ? `<button onclick="handleGenerateBills('${selectedMonth}')" class="bg-indigo-600 text-white px-4 rounded-xl text-sm font-medium whitespace-nowrap">Generate Bills</button>` : ''}
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 mb-3 text-center">
+        <div class="bg-white p-3 rounded-xl shadow-sm"><p class="text-xs text-slate-500">Billed</p><p class="font-bold text-slate-800">${fmtMoney(monthBilled)}</p></div>
+        <div class="bg-white p-3 rounded-xl shadow-sm"><p class="text-xs text-slate-500">Collected</p><p class="font-bold text-emerald-600">${fmtMoney(monthCollected)}</p></div>
+        <div class="bg-white p-3 rounded-xl shadow-sm"><p class="text-xs text-slate-500">Pending</p><p class="font-bold text-rose-600">${fmtMoney(monthOutstanding)}</p></div>
+      </div>
+
+      <div class="space-y-2">
+        ${monthInvoices.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No bills generated for ${monthLabel(selectedMonth)} yet. Tap "Generate Bills" above.</p>` :
+          monthInvoices.map(i => invoiceRow(i)).join("")}
+      </div>
+    ` : `
+      <div class="space-y-2">
+        ${outstandingInvoices.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No outstanding dues 🎉</p>` :
+          outstandingInvoices.map(i => invoiceRow(i, true)).join("")}
+      </div>
+    `}
+  `);
+}
+
+function invoiceRow(i, showMonth = false) {
+  const s = state.students.find(x => x.id === i.studentId);
+  if (!s) return "";
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between">
+      <div class="cursor-pointer flex-1" onclick="navigate('studentDetail',{id:'${s.id}'})">
+        <p class="font-semibold text-slate-800">${s.name} <span class="text-xs text-slate-400 font-normal">${className(s.classId)}</span></p>
+        ${showMonth ? `<p class="text-xs text-slate-500">${monthLabel(i.month)}</p>` : ''}
+        <p class="text-xs text-slate-500">${fmtMoney(i.totalAmount)} · Paid ${fmtMoney(i.paidAmount)} · Due ${fmtMoney(invoiceBalance(i))}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        ${statusBadge(i.status)}
+        ${i.status !== 'paid' ? `<button onclick="sendWhatsAppReminder('${s.id}')" class="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg">📲</button>` : ''}
+        ${i.status !== 'paid' && !isReadOnly() ? `<button onclick="openPaymentModal('${i.id}')" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded-lg">Pay</button>` : ''}
+      </div>
+    </div>`;
+}
+
+function handleGenerateBills(monthKey) {
+  const count = generateBillsForMonth(monthKey);
+  render();
+  toast(count > 0 ? `Generated ${count} bill(s) for ${monthLabel(monthKey)}` : "All students already billed for this month", count > 0 ? "success" : "info");
+}
+
+/* ---------- PAYMENT MODAL ---------- */
+function openPaymentModal(invoiceId) {
+  const inv = state.invoices.find(i => i.id === invoiceId);
+  const s = state.students.find(x => x.id === inv.studentId);
+  const balance = invoiceBalance(inv);
+  openModal(`
+    <h3 class="text-lg font-bold mb-1">Record Payment</h3>
+    <p class="text-sm text-slate-500 mb-4">${s.name} · ${monthLabel(inv.month)}</p>
+    <div class="bg-slate-50 rounded-xl p-3 mb-4 text-sm">
+      <div class="flex justify-between"><span class="text-slate-500">Total</span><span>${fmtMoney(inv.totalAmount)}</span></div>
+      <div class="flex justify-between"><span class="text-slate-500">Paid so far</span><span>${fmtMoney(inv.paidAmount)}</span></div>
+      <div class="flex justify-between font-semibold"><span>Balance Due</span><span>${fmtMoney(balance)}</span></div>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">Amount *</label>
+        <input id="p-amount" type="number" value="${balance}" max="${balance}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Mode *</label>
+        <select id="p-mode" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm">
+          <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Date *</label>
+        <input id="p-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal()" class="flex-1 px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="submitPayment('${invoiceId}')" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Record Payment</button>
+    </div>
+  `);
+}
+
+function submitPayment(invoiceId) {
+  const amount = Number(document.getElementById("p-amount").value);
+  const mode = document.getElementById("p-mode").value;
+  const date = document.getElementById("p-date").value;
+  if (!amount || !date) { toast("Please fill all fields", "error"); return; }
+  const payment = recordPayment(invoiceId, amount, mode, date);
+  if (!payment) return;
+  closeModal(); render();
+  toast(`Payment recorded — ${payment.receiptNo}`, "success");
+  openReceiptWindow(payment.id);
+}
+
+/* ---------- RECEIPT (printable) ---------- */
+function openReceiptWindow(paymentId) {
+  const p = state.payments.find(x => x.id === paymentId);
+  const inv = state.invoices.find(i => i.id === p.invoiceId);
+  const s = state.students.find(x => x.id === p.studentId);
+  const balance = invoiceBalance(inv);
+  const html = `
+    <html><head><title>${p.receiptNo}</title>
+    <style>
+      body{font-family:-apple-system,Arial,sans-serif;padding:24px;color:#1e293b;}
+      h1{font-size:18px;margin:0;} p{margin:4px 0;font-size:13px;}
+      table{width:100%;border-collapse:collapse;margin-top:16px;}
+      td,th{border-bottom:1px solid #e2e8f0;padding:8px;text-align:left;font-size:13px;}
+      .right{text-align:right;} .muted{color:#64748b;} .total{font-weight:bold;font-size:15px;}
+      .sig{margin-top:60px;border-top:1px solid #94a3b8;width:200px;text-align:center;font-size:12px;padding-top:4px;}
+    </style></head>
+    <body onload="window.print()">
+      <h1>${state.school.name}</h1>
+      <p class="muted">${state.school.address} · ${state.school.phone}</p>
+      <hr/>
+      <p><b>Receipt No:</b> ${p.receiptNo} &nbsp; <b>Date:</b> ${fmtDate(p.date)}</p>
+      <p><b>Student:</b> ${s.name} (${className(s.classId)}) &nbsp; <b>Parent:</b> ${s.parentName}</p>
+      <p><b>Billing Month:</b> ${monthLabel(inv.month)}</p>
+      <table>
+        <tr><th>Description</th><th class="right">Amount</th></tr>
+        ${inv.items.map(it => `<tr><td>${it.label}</td><td class="right">${fmtMoney(it.amount)}</td></tr>`).join("")}
+        ${inv.discountAmount ? `<tr><td>Sibling Discount</td><td class="right">−${fmtMoney(inv.discountAmount)}</td></tr>` : ''}
+        <tr><td>Total Fee</td><td class="right">${fmtMoney(inv.totalAmount)}</td></tr>
+        <tr><td><b>Amount Paid (${p.mode})</b></td><td class="right"><b>${fmtMoney(p.amount)}</b></td></tr>
+        <tr><td class="total">Balance Remaining</td><td class="right total">${fmtMoney(balance)}</td></tr>
+      </table>
+      <div class="sig">Authorized Signature</div>
+    </body></html>`;
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+}
+
+/* ---------- DAY CARE PAGE ---------- */
+function renderDayCarePage() {
+  const date = route.params.date || new Date().toISOString().slice(0,10);
+  const logs = state.dayCareLogs.filter(l => l.date === date).sort((a,b) => a.checkIn.localeCompare(b.checkIn));
+  const monthKey = date.slice(0,7);
+  const monthLogs = state.dayCareLogs.filter(l => l.date.slice(0,7) === monthKey);
+  const monthPending = monthLogs.filter(l => !l.invoiced).reduce((s,l)=>s+l.amount,0);
+  const monthBilled = monthLogs.filter(l => l.invoiced).reduce((s,l)=>s+l.amount,0);
+
+  return layout("Day Care", `
+    <div class="flex gap-2 mb-3">
+      <input type="date" value="${date}" onchange="navigate('daycare',{date:this.value})" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm" />
+      ${!isReadOnly() ? `<button onclick="openDayCareForm('${date}')" class="bg-indigo-600 text-white px-4 rounded-xl text-sm font-medium whitespace-nowrap">+ Log Entry</button>` : ''}
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 mb-3 text-center">
+      <div class="bg-white p-3 rounded-xl shadow-sm"><p class="text-xs text-slate-500">This Month — Pending</p><p class="font-bold text-rose-600">${fmtMoney(monthPending)}</p></div>
+      <div class="bg-white p-3 rounded-xl shadow-sm"><p class="text-xs text-slate-500">This Month — Billed</p><p class="font-bold text-emerald-600">${fmtMoney(monthBilled)}</p></div>
+    </div>
+
+    <div class="space-y-2">
+      ${logs.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No day care entries for ${fmtDate(date)}</p>` : logs.map(l => {
+        const s = state.students.find(x => x.id === l.studentId);
+        if (!s) return "";
+        return `
+        <div class="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between">
+          <div class="cursor-pointer flex-1" onclick="navigate('studentDetail',{id:'${s.id}'})">
+            <p class="font-semibold text-slate-800">${s.name} <span class="text-xs text-slate-400 font-normal">${className(s.classId)}</span></p>
+            <p class="text-xs text-slate-500">${l.checkIn} – ${l.checkOut} · ${l.hours} hr · ${fmtMoney(l.amount)}</p>
+          </div>
+          ${l.invoiced ? `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">BILLED</span>` : `<button onclick="deleteDayCareLog('${l.id}')" class="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded-lg">Delete</button>`}
+        </div>`;
+      }).join("")}
+    </div>
+  `);
+}
+
+function openDayCareForm(defaultDate) {
+  const activeStudents = state.students.filter(s => !s.archived);
+  openModal(`
+    <h3 class="text-lg font-bold mb-4">Log Day Care</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="text-xs text-slate-500">Student *</label>
+        <select id="dc-student" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl">
+          ${activeStudents.map(s => `<option value="${s.id}">${s.name} (${className(s.classId)})</option>`).join("")}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Date *</label>
+        <input id="dc-date" type="date" value="${defaultDate}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Check-in *</label>
+          <input id="dc-in" type="time" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Check-out *</label>
+          <input id="dc-out" type="time" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+      </div>
+      <p class="text-xs text-slate-400">Rounded up to the next full hour, 1 hour minimum. Rate: ${fmtMoney(state.settings.dayCareRate)}/hr.</p>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal()" class="flex-1 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="submitDayCareLog()" class="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Save</button>
+    </div>
+  `);
+}
+
+function submitDayCareLog() {
+  const studentId = document.getElementById("dc-student").value;
+  const date = document.getElementById("dc-date").value;
+  const checkIn = document.getElementById("dc-in").value;
+  const checkOut = document.getElementById("dc-out").value;
+  if (!studentId || !date || !checkIn || !checkOut) { toast("Please fill all fields", "error"); return; }
+  const log = logDayCare(studentId, date, checkIn, checkOut);
+  if (!log) return;
+  closeModal(); render();
+  toast(`Logged ${log.hours} hr — ${fmtMoney(log.amount)}`, "success");
+}
+
+/* =========================================================
+   REPORTS
+   ========================================================= */
+const REPORT_TYPES = [
+  { key: "collection",   label: "Fee Collection" },
+  { key: "outstanding",  label: "Outstanding Dues" },
+  { key: "defaulters",   label: "Defaulter List" },
+  { key: "van",          label: "Van Route-wise Collection" },
+  { key: "daycare",      label: "Day Care Summary" },
+  { key: "eca",          label: "ECA Enrollment & Collection" },
+  { key: "sibling",      label: "Sibling Discount Report" },
+  { key: "receipts",     label: "Receipt Register" },
+  { key: "consolidated", label: "Monthly Consolidated Summary" }
+];
+
+function renderReports() {
+  const type = route.params.type || "collection";
+  return layout("Reports", `
+    <select onchange="navigate('reports',{type:this.value})" class="w-full mb-3 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm">
+      ${REPORT_TYPES.map(r => `<option value="${r.key}" ${r.key===type?'selected':''}>${r.label}</option>`).join("")}
+    </select>
+    <div class="mb-3">
+      <button onclick="navigate('audit')" class="text-xs text-indigo-600 underline">Looking for the Audit Log? View it here →</button>
+    </div>
+    <div id="report-body">${renderReportBody(type)}</div>
+  `);
+}
+
+function renderReportBody(type) {
+  switch (type) {
+    case "collection": return reportCollection();
+    case "outstanding": return reportOutstanding();
+    case "defaulters": return reportDefaulters();
+    case "van": return reportVan();
+    case "daycare": return reportDayCare();
+    case "eca": return reportEca();
+    case "sibling": return reportSibling();
+    case "receipts": return reportReceipts();
+    case "consolidated": return reportConsolidated();
+    default: return "";
+  }
+}
+
+/* ---- 1. Fee Collection ---- */
+function reportCollection() {
+  const from = route.params.from || getYearMonths(getCurrentYear())[0].key + "-01";
+  const to = route.params.to || new Date().toISOString().slice(0,10);
+  const payments = state.payments.filter(p => p.date >= from && p.date <= to).sort((a,b) => a.date.localeCompare(b.date));
+  const total = payments.reduce((s,p)=>s+p.amount,0);
+  const byMode = {};
+  payments.forEach(p => byMode[p.mode] = (byMode[p.mode]||0) + p.amount);
+
+  const rows = payments.map(p => {
+    const s = state.students.find(x => x.id === p.studentId);
+    return `<tr><td>${fmtDate(p.date)}</td><td>${s?.name||"—"}</td><td>${p.receiptNo}</td><td>${p.mode}</td><td class="right">${fmtMoney(p.amount)}</td></tr>`;
+  }).join("");
+
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <div class="grid grid-cols-2 gap-2 text-sm mb-2">
+        <div><label class="text-xs text-slate-500">From</label><input type="date" value="${from}" onchange="navigate('reports',{type:'collection', from:this.value, to:'${to}'})" class="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></div>
+        <div><label class="text-xs text-slate-500">To</label><input type="date" value="${to}" onchange="navigate('reports',{type:'collection', from:'${from}', to:this.value})" class="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></div>
+      </div>
+      <button onclick="exportCollectionReport('${from}','${to}')" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <p class="text-sm text-slate-500">Total Collected</p>
+      <p class="text-2xl font-bold text-emerald-600">${fmtMoney(total)}</p>
+      <div class="flex flex-wrap gap-2 mt-2">
+        ${Object.entries(byMode).map(([m,a]) => `<span class="text-xs bg-slate-100 px-2 py-1 rounded-full">${m}: ${fmtMoney(a)}</span>`).join("")}
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Date</th><th>Student</th><th>Receipt</th><th>Mode</th><th class="text-right">Amount</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" class="text-center text-slate-400 py-4">No payments in this range</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+function exportCollectionReport(from, to) {
+  const payments = state.payments.filter(p => p.date >= from && p.date <= to).sort((a,b) => a.date.localeCompare(b.date));
+  const total = payments.reduce((s,p)=>s+p.amount,0);
+  const rows = payments.map(p => {
+    const s = state.students.find(x => x.id === p.studentId);
+    return `<tr><td>${fmtDate(p.date)}</td><td>${s?.name||"—"}</td><td>${p.receiptNo}</td><td>${p.mode}</td><td class="right">${fmtMoney(p.amount)}</td></tr>`;
+  }).join("");
+  printReport(`Fee Collection Report (${fmtDate(from)} - ${fmtDate(to)})`, `
+    <table><thead><tr><th>Date</th><th>Student</th><th>Receipt</th><th>Mode</th><th class="right">Amount</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="4">Total</td><td class="right">${fmtMoney(total)}</td></tr></table>`);
+}
+
+/* ---- 2. Outstanding Dues ---- */
+function reportOutstanding() {
+  const invs = invoicesForYear().filter(i => i.status !== "paid").sort((a,b) => a.month.localeCompare(b.month));
+  const total = invs.reduce((s,i)=>s+invoiceBalance(i),0);
+  const rows = invs.map(i => {
+    const s = state.students.find(x => x.id === i.studentId);
+    if (!s) return "";
+    return `<tr><td>${s.name}</td><td>${className(s.classId)}</td><td>${monthLabel(i.month)}</td><td class="right">${fmtMoney(i.totalAmount)}</td><td class="right">${fmtMoney(i.paidAmount)}</td><td class="right">${fmtMoney(invoiceBalance(i))}</td></tr>`;
+  }).join("");
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <p class="text-sm text-slate-500">Total Outstanding (${invs.length} bill${invs.length!==1?'s':''})</p>
+      <p class="text-2xl font-bold text-rose-600">${fmtMoney(total)}</p>
+      <button onclick="exportOutstandingReport()" class="w-full mt-3 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Student</th><th>Class</th><th>Month</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Due</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="6" class="text-center text-slate-400 py-4">No outstanding dues 🎉</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+function exportOutstandingReport() {
+  const invs = invoicesForYear().filter(i => i.status !== "paid").sort((a,b) => a.month.localeCompare(b.month));
+  const total = invs.reduce((s,i)=>s+invoiceBalance(i),0);
+  const rows = invs.map(i => {
+    const s = state.students.find(x => x.id === i.studentId);
+    return `<tr><td>${s?.name}</td><td>${className(s?.classId)}</td><td>${monthLabel(i.month)}</td><td class="right">${fmtMoney(i.totalAmount)}</td><td class="right">${fmtMoney(i.paidAmount)}</td><td class="right">${fmtMoney(invoiceBalance(i))}</td></tr>`;
+  }).join("");
+  printReport("Outstanding Dues Report", `
+    <table><thead><tr><th>Student</th><th>Class</th><th>Month</th><th class="right">Total</th><th class="right">Paid</th><th class="right">Due</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="5">Total Outstanding</td><td class="right">${fmtMoney(total)}</td></tr></table>`);
+}
+
+/* ---- 3. Defaulter List (per-student aggregate) ---- */
+function defaulterAggregate() {
+  const invs = invoicesForYear().filter(i => i.status !== "paid");
+  const byStudent = {};
+  invs.forEach(i => {
+    if (!byStudent[i.studentId]) byStudent[i.studentId] = { studentId: i.studentId, balance: 0, months: [] };
+    byStudent[i.studentId].balance += invoiceBalance(i);
+    byStudent[i.studentId].months.push(monthLabel(i.month));
+  });
+  return Object.values(byStudent).sort((a,b) => b.balance - a.balance);
+}
+function reportDefaulters() {
+  const list = defaulterAggregate();
+  const rows = list.map(d => {
+    const s = state.students.find(x => x.id === d.studentId);
+    if (!s) return "";
+    return `<tr><td>${s.name}</td><td>${className(s.classId)}</td><td>${s.parentPhone}</td><td>${d.months.join(", ")}</td><td class="right">${fmtMoney(d.balance)}</td></tr>`;
+  }).join("");
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <p class="text-sm text-slate-500">${list.length} student(s) with dues</p>
+      <button onclick="exportDefaultersReport()" class="w-full mt-3 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="space-y-2">
+      ${list.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No defaulters 🎉</p>` : list.map(d => {
+        const s = state.students.find(x => x.id === d.studentId);
+        if (!s) return "";
+        return `
+        <div class="bg-white rounded-2xl shadow-sm p-4">
+          <div class="flex justify-between items-start cursor-pointer" onclick="navigate('studentDetail',{id:'${s.id}'})">
+            <div><p class="font-semibold text-slate-800">${s.name}</p><p class="text-xs text-slate-500">${className(s.classId)} · ${s.parentPhone}</p><p class="text-xs text-slate-400">Due: ${d.months.join(", ")}</p></div>
+            <p class="font-bold text-rose-600">${fmtMoney(d.balance)}</p>
+          </div>
+          <button onclick="sendWhatsAppReminder('${s.id}')" class="w-full mt-2 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium">📲 Send Reminder via WhatsApp</button>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+function exportDefaultersReport() {
+  const list = defaulterAggregate();
+  const rows = list.map(d => {
+    const s = state.students.find(x => x.id === d.studentId);
+    return `<tr><td>${s?.name}</td><td>${className(s?.classId)}</td><td>${s?.parentPhone}</td><td>${d.months.join(", ")}</td><td class="right">${fmtMoney(d.balance)}</td></tr>`;
+  }).join("");
+  printReport("Defaulter List", `
+    <table><thead><tr><th>Student</th><th>Class</th><th>Parent Phone</th><th>Unpaid Months</th><th class="right">Balance</th></tr></thead>
+    <tbody>${rows}</tbody></table>`);
+}
+
+/* ---- 4. Van Route-wise Collection ---- */
+function vanRouteStats() {
+  const invs = invoicesForYear();
+  return state.routes.map(r => {
+    let billed = 0, collected = 0, count = 0;
+    invs.forEach(i => i.items.filter(it => it.head === "van" && (it.routeId === r.id || it.label === `Van - ${r.name}`)).forEach(it => {
+      billed += it.amount; collected += itemCollected(i, it); count++;
+    }));
+    return { route: r, billed, collected, count };
+  });
+}
+function reportVan() {
+  const stats = vanRouteStats();
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <button onclick="exportVanReport()" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="space-y-2">
+      ${stats.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No routes set up</p>` : stats.map(st => `
+        <div class="bg-white rounded-2xl shadow-sm p-4">
+          <p class="font-semibold text-slate-800">${st.route.name}</p>
+          <p class="text-xs text-slate-400 mb-2">${st.route.billingFrequency === 'monthly' ? 'Monthly' : 'Half-Yearly'} · ${st.count} billed instance(s)</p>
+          <div class="grid grid-cols-2 gap-2 text-center">
+            <div><p class="text-xs text-slate-500">Billed</p><p class="font-bold">${fmtMoney(st.billed)}</p></div>
+            <div><p class="text-xs text-slate-500">Collected (approx)</p><p class="font-bold text-emerald-600">${fmtMoney(st.collected)}</p></div>
+          </div>
+        </div>
+      `).join("")}
+    </div>`;
+}
+function exportVanReport() {
+  const stats = vanRouteStats();
+  const rows = stats.map(st => `<tr><td>${st.route.name}</td><td>${st.route.billingFrequency}</td><td class="right">${fmtMoney(st.billed)}</td><td class="right">${fmtMoney(st.collected)}</td></tr>`).join("");
+  printReport("Van Route-wise Collection", `
+    <table><thead><tr><th>Route</th><th>Frequency</th><th class="right">Billed</th><th class="right">Collected (approx)</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p style="font-size:11px;color:#94a3b8;margin-top:8px;">Collected figures are proportionally allocated from total payments — no per-item payment allocation exists yet.</p>`);
+}
+
+/* ---- 5. Day Care Summary ---- */
+function dayCareByMonth() {
+  const map = {};
+  state.dayCareLogs.forEach(l => {
+    const m = l.date.slice(0,7);
+    if (!map[m]) map[m] = { month: m, hours: 0, billed: 0, pending: 0 };
+    map[m].hours += l.hours;
+    if (l.invoiced) map[m].billed += l.amount; else map[m].pending += l.amount;
+  });
+  return Object.values(map).sort((a,b) => a.month.localeCompare(b.month));
+}
+function reportDayCare() {
+  const rows = dayCareByMonth();
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <button onclick="exportDayCareReport()" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Month</th><th class="text-right">Hours</th><th class="text-right">Billed</th><th class="text-right">Pending</th></tr></thead>
+        <tbody>${rows.length===0 ? `<tr><td colspan="4" class="text-center text-slate-400 py-4">No day care entries yet</td></tr>` : rows.map(r => `<tr><td>${monthLabel(r.month)}</td><td class="text-right">${r.hours}</td><td class="text-right">${fmtMoney(r.billed)}</td><td class="text-right">${fmtMoney(r.pending)}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+}
+function exportDayCareReport() {
+  const rows = dayCareByMonth();
+  const body = rows.map(r => `<tr><td>${monthLabel(r.month)}</td><td class="right">${r.hours}</td><td class="right">${fmtMoney(r.billed)}</td><td class="right">${fmtMoney(r.pending)}</td></tr>`).join("");
+  printReport("Day Care Attendance vs Billing Summary", `
+    <table><thead><tr><th>Month</th><th class="right">Hours</th><th class="right">Billed</th><th class="right">Pending</th></tr></thead>
+    <tbody>${body}</tbody></table>`);
+}
+
+/* ---- 6. ECA Enrollment & Collection ---- */
+function ecaStats() {
+  const invs = invoicesForYear();
+  return state.ecaActivities.map(a => {
+    const enrolled = state.students.filter(s => !s.archived && (s.ecaIds||[]).includes(a.id)).length;
+    let billed = 0, collected = 0;
+    invs.forEach(i => i.items.filter(it => it.head === `eca_${a.id}`).forEach(it => { billed += it.amount; collected += itemCollected(i, it); }));
+    return { activity: a, enrolled, billed, collected };
+  });
+}
+function reportEca() {
+  const stats = ecaStats();
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <button onclick="exportEcaReport()" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="space-y-2">
+      ${stats.length === 0 ? `<p class="text-sm text-slate-400 text-center py-6">No activities set up</p>` : stats.map(st => `
+        <div class="bg-white rounded-2xl shadow-sm p-4">
+          <p class="font-semibold text-slate-800">${st.activity.name}</p>
+          <p class="text-xs text-slate-400 mb-2">${st.enrolled} enrolled · ${st.activity.billingFrequency}</p>
+          <div class="grid grid-cols-2 gap-2 text-center">
+            <div><p class="text-xs text-slate-500">Billed</p><p class="font-bold">${fmtMoney(st.billed)}</p></div>
+            <div><p class="text-xs text-slate-500">Collected (approx)</p><p class="font-bold text-emerald-600">${fmtMoney(st.collected)}</p></div>
+          </div>
+        </div>
+      `).join("")}
+    </div>`;
+}
+function exportEcaReport() {
+  const stats = ecaStats();
+  const rows = stats.map(st => `<tr><td>${st.activity.name}</td><td class="right">${st.enrolled}</td><td class="right">${fmtMoney(st.billed)}</td><td class="right">${fmtMoney(st.collected)}</td></tr>`).join("");
+  printReport("ECA Enrollment & Collection", `
+    <table><thead><tr><th>Activity</th><th class="right">Enrolled</th><th class="right">Billed</th><th class="right">Collected (approx)</th></tr></thead>
+    <tbody>${rows}</tbody></table>`);
+}
+
+/* ---- 7. Sibling Discount Report ---- */
+function siblingDiscountRows() {
+  return invoicesForYear().filter(i => i.discountAmount > 0).sort((a,b) => a.month.localeCompare(b.month));
+}
+function reportSibling() {
+  const invs = siblingDiscountRows();
+  const total = invs.reduce((s,i)=>s+i.discountAmount,0);
+  const rows = invs.map(i => {
+    const s = state.students.find(x => x.id === i.studentId);
+    if (!s) return "";
+    return `<tr><td>${s.name}</td><td>${s.parentName}</td><td>${monthLabel(i.month)}</td><td class="right">${fmtMoney(i.discountAmount)}</td></tr>`;
+  }).join("");
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <p class="text-sm text-slate-500">Total Discount Given</p>
+      <p class="text-2xl font-bold text-amber-600">${fmtMoney(total)}</p>
+      <button onclick="exportSiblingReport()" class="w-full mt-3 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Student</th><th>Family</th><th>Month</th><th class="text-right">Discount</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" class="text-center text-slate-400 py-4">No sibling discounts applied yet</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+function exportSiblingReport() {
+  const invs = siblingDiscountRows();
+  const total = invs.reduce((s,i)=>s+i.discountAmount,0);
+  const rows = invs.map(i => {
+    const s = state.students.find(x => x.id === i.studentId);
+    return `<tr><td>${s?.name}</td><td>${s?.parentName}</td><td>${monthLabel(i.month)}</td><td class="right">${fmtMoney(i.discountAmount)}</td></tr>`;
+  }).join("");
+  printReport("Sibling Discount Report", `
+    <table><thead><tr><th>Student</th><th>Family</th><th>Month</th><th class="right">Discount</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="3">Total</td><td class="right">${fmtMoney(total)}</td></tr></table>`);
+}
+
+/* ---- 8. Receipt Register ---- */
+function reportReceipts() {
+  const payments = [...state.payments].sort((a,b) => b.date.localeCompare(a.date));
+  const rows = payments.map(p => {
+    const s = state.students.find(x => x.id === p.studentId);
+    return `<tr><td>${p.receiptNo}</td><td>${fmtDate(p.date)}</td><td>${s?.name||"—"}</td><td>${p.mode}</td><td class="right">${fmtMoney(p.amount)}</td></tr>`;
+  }).join("");
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <button onclick="exportReceiptsReport()" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Receipt No</th><th>Date</th><th>Student</th><th>Mode</th><th class="text-right">Amount</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" class="text-center text-slate-400 py-4">No receipts yet</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+function exportReceiptsReport() {
+  const payments = [...state.payments].sort((a,b) => b.date.localeCompare(a.date));
+  const rows = payments.map(p => {
+    const s = state.students.find(x => x.id === p.studentId);
+    return `<tr><td>${p.receiptNo}</td><td>${fmtDate(p.date)}</td><td>${s?.name||"—"}</td><td>${p.mode}</td><td class="right">${fmtMoney(p.amount)}</td></tr>`;
+  }).join("");
+  printReport("Receipt Register", `
+    <table><thead><tr><th>Receipt No</th><th>Date</th><th>Student</th><th>Mode</th><th class="right">Amount</th></tr></thead>
+    <tbody>${rows}</tbody></table>`);
+}
+
+/* ---- 9. Monthly Consolidated Summary ---- */
+function consolidatedRows() {
+  const months = getYearMonths(getCurrentYear());
+  const invs = invoicesForYear();
+  return months.map(m => {
+    const mInvs = invs.filter(i => i.month === m.key);
+    const heads = { academic: 0, van: 0, eca: 0, daycare: 0 };
+    mInvs.forEach(i => i.items.forEach(it => {
+      if (it.head === "academic") heads.academic += it.amount;
+      else if (it.head === "van") heads.van += it.amount;
+      else if (it.head === "daycare") heads.daycare += it.amount;
+      else if (it.head.startsWith("eca_")) heads.eca += it.amount;
+    }));
+    const billed = mInvs.reduce((s,i)=>s+i.totalAmount,0);
+    const collected = mInvs.reduce((s,i)=>s+i.paidAmount,0);
+    return { month: m.key, heads, billed, collected, outstanding: billed - collected, hasBills: mInvs.length > 0 };
+  });
+}
+function reportConsolidated() {
+  const rows = consolidatedRows();
+  const body = rows.map(r => `
+    <tr>
+      <td>${monthLabel(r.month)}</td>
+      <td class="text-right">${fmtMoney(r.heads.academic)}</td>
+      <td class="text-right">${fmtMoney(r.heads.van)}</td>
+      <td class="text-right">${fmtMoney(r.heads.eca)}</td>
+      <td class="text-right">${fmtMoney(r.heads.daycare)}</td>
+      <td class="text-right font-semibold">${fmtMoney(r.billed)}</td>
+      <td class="text-right text-emerald-600">${fmtMoney(r.collected)}</td>
+      <td class="text-right text-rose-600">${fmtMoney(r.outstanding)}</td>
+    </tr>`).join("");
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <button onclick="exportConsolidatedReport()" class="w-full py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Export PDF</button>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm p-4 overflow-x-auto">
+      <table class="w-full text-sm whitespace-nowrap">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="py-1">Month</th><th class="text-right">Academic</th><th class="text-right">Van</th><th class="text-right">ECA</th><th class="text-right">Day Care</th><th class="text-right">Billed</th><th class="text-right">Collected</th><th class="text-right">Outstanding</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+function exportConsolidatedReport() {
+  const rows = consolidatedRows();
+  const body = rows.map(r => `<tr><td>${monthLabel(r.month)}</td><td class="right">${fmtMoney(r.heads.academic)}</td><td class="right">${fmtMoney(r.heads.van)}</td><td class="right">${fmtMoney(r.heads.eca)}</td><td class="right">${fmtMoney(r.heads.daycare)}</td><td class="right">${fmtMoney(r.billed)}</td><td class="right">${fmtMoney(r.collected)}</td><td class="right">${fmtMoney(r.outstanding)}</td></tr>`).join("");
+  printReport("Monthly Consolidated Summary", `
+    <table><thead><tr><th>Month</th><th class="right">Academic</th><th class="right">Van</th><th class="right">ECA</th><th class="right">Day Care</th><th class="right">Billed</th><th class="right">Collected</th><th class="right">Outstanding</th></tr></thead>
+    <tbody>${body}</tbody></table>`);
+}
+
+/* ---------- CLASS FEE UPDATE (used from Settings) ---------- */
+function updateClassFee(classId, value) {
+  state.academicFees[classId] = Number(value) || 0;
+  audit("settings", `Academic fee updated for ${className(classId)}: ₹${value}`);
+  saveState();
+  toast("Fee updated", "success");
+}
+
+/* ---------- SETTINGS (with multi-year switcher) ---------- */
+function renderSettings() {
+  const sd = state.settings.siblingDiscount;
+  const yr = getCurrentYear();
+  return layout("Settings", `
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <h3 class="font-semibold mb-3">School Info</h3>
+      <div class="space-y-2 text-sm">
+        <div>
+          <label class="text-xs text-slate-500">School Name</label>
+          <input value="${state.school.name}" onchange="state.school.name=this.value;saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Address</label>
+          <input value="${state.school.address}" onchange="state.school.address=this.value;saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Phone</label>
+          <input value="${state.school.phone}" onchange="state.school.phone=this.value;saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">Academic Years</h3>
+        <button onclick="openAddYearForm()" class="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg">+ Add Year</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">Switch between years to view/edit data. Archive a year to make it read-only.</p>
+      <div class="space-y-2">
+        ${state.academicYears.map(y => `
+          <div class="border ${y.id === state.currentYearId ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'} rounded-xl p-3">
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <p class="font-semibold text-slate-800">${y.label}</p>
+                  ${y.id === state.currentYearId ? '<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full">VIEWING</span>' : ''}
+                  ${y.status === 'archived' ? '<span class="text-[10px] bg-slate-300 text-slate-700 px-2 py-0.5 rounded-full">🔒 ARCHIVED</span>' : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">ACTIVE</span>'}
+                </div>
+                <p class="text-xs text-slate-500 mt-1">${fmtDate(y.startDate)} – ${fmtDate(y.endDate)}</p>
+              </div>
+              <div class="flex flex-col gap-1">
+                ${y.id !== state.currentYearId ? `<button onclick="switchYear('${y.id}')" class="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded">Switch to</button>` : ''}
+                ${y.status === 'active' && state.academicYears.filter(x=>x.status==='active').length > 1 ? `<button onclick="archiveYear('${y.id}')" class="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded">Archive</button>` : ''}
+                ${y.status === 'archived' ? `<button onclick="unarchiveYear('${y.id}')" class="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded">Unarchive</button>` : ''}
+                ${state.academicYears.length > 1 ? `<button onclick="deleteYear('${y.id}')" class="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded">Delete</button>` : ''}
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <h3 class="font-semibold mb-1">Classes & Academic Fees</h3>
+      <p class="text-xs text-slate-500 mb-3">Monthly academic fee per class. Change this only when fees are revised — not an everyday task.</p>
+      <div class="space-y-2">
+        ${state.classes.map(c => `
+          <div class="flex items-center justify-between border border-slate-100 rounded-xl p-3">
+            <div>
+              <p class="font-medium text-sm text-slate-800">${c.name}</p>
+              <p class="text-xs text-slate-400">${state.students.filter(s=>!s.archived && s.classId===c.id).length} students</p>
+            </div>
+            <div class="flex items-center gap-1">
+              <span class="text-slate-500 text-sm">₹</span>
+              <input type="number" value="${state.academicFees[c.id]||0}" onchange="updateClassFee('${c.id}', this.value)" class="w-24 text-right px-2 py-1 border border-slate-200 rounded-lg text-sm" />
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <h3 class="font-semibold mb-1">Day Care</h3>
+      <p class="text-xs text-slate-500 mb-3">Flat hourly rate. Exact check-in/out is logged per visit; any stay rounds up to the next full hour with a 1-hour minimum.</p>
+      <div class="flex items-center gap-2">
+        <span class="text-slate-500 text-sm">₹</span>
+        <input type="number" value="${state.settings.dayCareRate}" onchange="state.settings.dayCareRate=Number(this.value)||0;saveState()" class="w-28 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+        <span class="text-sm text-slate-500">per hour</span>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-semibold">Transport Routes</h3>
+        <button onclick="openRouteForm()" class="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg">+ Add Route</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">Set fee & billing frequency per route. Assign students to a route from their profile.</p>
+      <div class="space-y-2">
+        ${state.routes.length === 0 ? `<p class="text-sm text-slate-400 text-center py-3">No routes yet</p>` : state.routes.map(r => `
+          <div class="flex items-center justify-between border border-slate-100 rounded-xl p-3">
+            <div>
+              <p class="font-medium text-sm text-slate-800">${r.name}</p>
+              <p class="text-xs text-slate-400">${fmtMoney(r.amount)} · ${r.billingFrequency === 'monthly' ? 'Monthly' : 'Half-Yearly'} · ${state.students.filter(s=>!s.archived && s.vanRouteId===r.id).length} students</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="openRouteForm('${r.id}')" class="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-lg">Edit</button>
+              <button onclick="deleteRoute('${r.id}')" class="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded-lg">Delete</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-semibold">ECA Activities</h3>
+        <button onclick="openEcaForm()" class="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg">+ Add Activity</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">User-defined activities with a flat fee. Enroll students from their profile.</p>
+      <div class="space-y-2">
+        ${state.ecaActivities.length === 0 ? `<p class="text-sm text-slate-400 text-center py-3">No activities yet</p>` : state.ecaActivities.map(a => `
+          <div class="flex items-center justify-between border border-slate-100 rounded-xl p-3">
+            <div>
+              <p class="font-medium text-sm text-slate-800">${a.name}</p>
+              <p class="text-xs text-slate-400">${fmtMoney(a.amount)} · ${a.billingFrequency === 'monthly' ? 'Monthly' : 'One-time'} · ${state.students.filter(s=>!s.archived && (s.ecaIds||[]).includes(a.id)).length} enrolled</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="openEcaForm('${a.id}')" class="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-lg">Edit</button>
+              <button onclick="deleteEcaActivity('${a.id}')" class="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded-lg">Delete</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <h3 class="font-semibold mb-3">Sibling Discount</h3>
+      <label class="flex items-center justify-between text-sm mb-3">
+        <span>Enable discount</span>
+        <input type="checkbox" ${sd.enabled?'checked':''} onchange="state.settings.siblingDiscount.enabled=this.checked;saveState();render()" class="w-5 h-5" />
+      </label>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <label class="text-xs text-slate-500">Type</label>
+          <select onchange="state.settings.siblingDiscount.type=this.value;saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl">
+            <option value="percent" ${sd.type==='percent'?'selected':''}>Percent (%)</option>
+            <option value="fixed" ${sd.type==='fixed'?'selected':''}>Fixed (₹)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Value</label>
+          <input type="number" value="${sd.value}" onchange="state.settings.siblingDiscount.value=Number(this.value);saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+        </div>
+        <div class="col-span-2">
+          <label class="text-xs text-slate-500">Applies to</label>
+          <select onchange="state.settings.siblingDiscount.appliesTo=this.value;saveState()" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl">
+            <option value="all" ${sd.appliesTo==='all'?'selected':''}>All fee heads</option>
+            <option value="academic" ${sd.appliesTo==='academic'?'selected':''}>Academic only</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mb-3">
+      <h3 class="font-semibold mb-3">Data Management</h3>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <button onclick="exportJSON()" class="py-2 bg-slate-100 rounded-xl">Export JSON</button>
+        <label class="py-2 bg-slate-100 rounded-xl text-center cursor-pointer">
+          Import JSON
+          <input type="file" accept="application/json" class="hidden" onchange="importJSON(this.files[0])" />
+        </label>
+        <button onclick="if(confirm('Reset all data to defaults? This wipes everything.')) resetState()" class="col-span-2 py-2 bg-rose-100 text-rose-700 rounded-xl">Reset to Defaults</button>
+      </div>
+      <p class="text-xs text-slate-400 mt-2 text-center">Storage key: ${STORAGE_KEY}</p>
+    </div>
+  `);
+}
+
+/* ---------- TRANSPORT ROUTES ---------- */
+function openRouteForm(editId = null) {
+  const r = editId ? state.routes.find(x => x.id === editId) : { name: "", amount: 0, billingFrequency: "monthly" };
+  openModal(`
+    <h3 class="text-lg font-bold mb-4">${editId ? "Edit" : "Add"} Route</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="text-xs text-slate-500">Route Name *</label>
+        <input id="r-name" value="${r.name}" placeholder="Route A - City Center" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Fee Amount (₹) *</label>
+        <input id="r-amount" type="number" value="${r.amount}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Billing Frequency *</label>
+        <select id="r-freq" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl">
+          <option value="monthly" ${r.billingFrequency==='monthly'?'selected':''}>Monthly</option>
+          <option value="half-yearly" ${r.billingFrequency==='half-yearly'?'selected':''}>Half-Yearly (2 terms)</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal()" class="flex-1 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="saveRoute('${editId||''}')" class="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Save</button>
+    </div>
+  `);
+}
+
+function saveRoute(editId) {
+  const name = document.getElementById("r-name").value.trim();
+  const amount = Number(document.getElementById("r-amount").value);
+  const billingFrequency = document.getElementById("r-freq").value;
+  if (!name || !amount) { toast("Please fill all fields", "error"); return; }
+  if (editId) {
+    const r = state.routes.find(x => x.id === editId);
+    r.name = name; r.amount = amount; r.billingFrequency = billingFrequency;
+    audit("settings", `Route ${name} updated`);
+  } else {
+    state.routes.push({ id: uid("r"), name, amount, billingFrequency });
+    audit("settings", `Route ${name} added`);
+  }
+  saveState(); closeModal(); render();
+  toast("Route saved", "success");
+}
+
+function deleteRoute(id) {
+  const inUse = state.students.some(s => !s.archived && s.vanRouteId === id);
+  if (inUse) { toast("Cannot delete — students are assigned to this route", "error"); return; }
+  const r = state.routes.find(x => x.id === id);
+  if (!confirm(`Delete route ${r.name}?`)) return;
+  state.routes = state.routes.filter(x => x.id !== id);
+  audit("settings", `Route ${r.name} deleted`);
+  saveState(); render();
+  toast("Route deleted", "info");
+}
+
+/* ---------- ECA ACTIVITIES ---------- */
+function openEcaForm(editId = null) {
+  const a = editId ? state.ecaActivities.find(x => x.id === editId) : { name: "", amount: 0, billingFrequency: "monthly" };
+  openModal(`
+    <h3 class="text-lg font-bold mb-4">${editId ? "Edit" : "Add"} Activity</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="text-xs text-slate-500">Activity Name *</label>
+        <input id="e-name" value="${a.name}" placeholder="Dance, Karate, Art Kit..." class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Fee Amount (₹) *</label>
+        <input id="e-amount" type="number" value="${a.amount}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Billing Frequency *</label>
+        <select id="e-freq" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl">
+          <option value="monthly" ${a.billingFrequency==='monthly'?'selected':''}>Monthly</option>
+          <option value="one-time" ${a.billingFrequency==='one-time'?'selected':''}>One-time</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal()" class="flex-1 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="saveEcaActivity('${editId||''}')" class="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Save</button>
+    </div>
+  `);
+}
+
+function saveEcaActivity(editId) {
+  const name = document.getElementById("e-name").value.trim();
+  const amount = Number(document.getElementById("e-amount").value);
+  const billingFrequency = document.getElementById("e-freq").value;
+  if (!name || !amount) { toast("Please fill all fields", "error"); return; }
+  if (editId) {
+    const a = state.ecaActivities.find(x => x.id === editId);
+    a.name = name; a.amount = amount; a.billingFrequency = billingFrequency;
+    audit("settings", `ECA activity ${name} updated`);
+  } else {
+    state.ecaActivities.push({ id: uid("e"), name, amount, billingFrequency });
+    audit("settings", `ECA activity ${name} added`);
+  }
+  saveState(); closeModal(); render();
+  toast("Activity saved", "success");
+}
+
+function deleteEcaActivity(id) {
+  const inUse = state.students.some(s => !s.archived && (s.ecaIds||[]).includes(id));
+  if (inUse) { toast("Cannot delete — students are enrolled in this activity", "error"); return; }
+  const a = state.ecaActivities.find(x => x.id === id);
+  if (!confirm(`Delete activity ${a.name}?`)) return;
+  state.ecaActivities = state.ecaActivities.filter(x => x.id !== id);
+  audit("settings", `ECA activity ${a.name} deleted`);
+  saveState(); render();
+  toast("Activity deleted", "info");
+}
+
+function openAddYearForm() {
+  openModal(`
+    <h3 class="text-lg font-bold mb-4">Add Academic Year</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="text-xs text-slate-500">Label (e.g., 2026-2027)</label>
+        <input id="y-label" placeholder="2026-2027" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Start Date</label>
+        <input id="y-start" type="date" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">End Date</label>
+        <input id="y-end" type="date" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl" />
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal()" class="flex-1 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+      <button onclick="addYear()" class="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium">Add</button>
+    </div>
+  `);
+}
+
+function addYear() {
+  const label = document.getElementById("y-label").value.trim();
+  const startDate = document.getElementById("y-start").value;
+  const endDate = document.getElementById("y-end").value;
+  if (!label || !startDate || !endDate) { toast("Please fill all fields", "error"); return; }
+  const id = "ay_" + Date.now().toString(36);
+  state.academicYears.push({ id, label, startDate, endDate, status: "active" });
+  audit("settings", `Academic year ${label} added`);
+  saveState(); closeModal(); render();
+  toast("Year added", "success");
+}
+
+function switchYear(id) {
+  state.currentYearId = id;
+  audit("settings", `Switched to year ${state.academicYears.find(y=>y.id===id).label}`);
+  saveState(); render();
+  toast("Switched year", "info");
+}
+
+function archiveYear(id) {
+  const y = state.academicYears.find(x => x.id === id);
+  if (!confirm(`Archive year ${y.label}? It will become read-only.`)) return;
+  y.status = "archived";
+  audit("settings", `Year ${y.label} archived`);
+  saveState(); render();
+  toast("Year archived", "info");
+}
+
+function unarchiveYear(id) {
+  const y = state.academicYears.find(x => x.id === id);
+  y.status = "active";
+  audit("settings", `Year ${y.label} unarchived`);
+  saveState(); render();
+  toast("Year reactivated", "success");
+}
+
+function deleteYear(id) {
+  const y = state.academicYears.find(x => x.id === id);
+  if (state.currentYearId === id) { toast("Cannot delete the year you're currently viewing", "error"); return; }
+  if (!confirm(`Delete year ${y.label}? This only removes the year record, not student data.`)) return;
+  state.academicYears = state.academicYears.filter(x => x.id !== id);
+  audit("settings", `Year ${y.label} deleted`);
+  saveState(); render();
+  toast("Year deleted", "info");
+}
+
+/* ---------- AUDIT LOG ---------- */
+function renderAudit() {
+  return layout("Audit Log", `
+    <p class="text-sm text-slate-500 mb-3">Last ${state.auditLog.length} action(s)</p>
+    <div class="space-y-2">
+      ${state.auditLog.length === 0 ? '<p class="text-sm text-slate-400 text-center py-6">No activity yet</p>' :
+        state.auditLog.map(a => `
+          <div class="bg-white rounded-xl shadow-sm p-3">
+            <p class="text-sm"><b class="text-indigo-600">${a.user}</b> <span class="text-slate-500">${a.action}</span></p>
+            <p class="text-xs text-slate-500">${a.details || ""}</p>
+            <p class="text-xs text-slate-400 mt-1">${fmtDateTime(a.timestamp)}</p>
+          </div>
+        `).join("")}
+    </div>
+  `);
+}
+
+/* =========================================================
+   LAYOUT (Top bar + Year badge + Bottom nav)
+   ========================================================= */
+function layout(title, content, back = null) {
+  const yr = getCurrentYear();
+  const navItems = [
+    { name: "dashboard", label: "Home", icon: "🏠" },
+    { name: "students",  label: "Students", icon: "👨‍🎓" },
+    { name: "billing",   label: "Billing", icon: "💳" },
+    { name: "settings",  label: "Settings", icon: "⚙️" }
+  ];
+  return `
+    <div class="min-h-screen pb-20">
+      <div class="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h1 class="font-bold text-slate-800">${title}</h1>
+            <p class="text-xs text-slate-400">${state.school.name}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">${state.currentUser?.role || ""}</span>
+            <button onclick="if(confirm('Logout?')){state.currentUser=null;saveState();navigate('login')}" class="text-xs text-rose-600">Logout</button>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <span class="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">📅 ${yr.label}</span>
+          ${yr.status === 'archived' ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">🔒 READ-ONLY</span>' : ''}
+          <button onclick="openYearSwitcher()" class="text-[10px] text-indigo-600 underline ml-auto">Switch year</button>
+        </div>
+      </div>
+      <div class="p-4 slide-in">${content}</div>
+      <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30">
+        <div class="max-w-lg mx-auto grid grid-cols-4">
+          ${navItems.map(n => `
+            <button onclick="navigate('${n.name}')" class="py-2 text-center ${route.name===n.name?'text-indigo-600':'text-slate-500'}">
+              <div class="text-xl">${n.icon}</div>
+              <div class="text-[10px]">${n.label}</div>
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+
+function openYearSwitcher() {
+  const yr = getCurrentYear();
+  openModal(`
+    <h3 class="text-lg font-bold mb-3">Switch Academic Year</h3>
+    <p class="text-xs text-slate-500 mb-3">Currently viewing: <b>${yr.label}</b></p>
+    <div class="space-y-2">
+      ${state.academicYears.map(y => `
+        <button onclick="switchYear('${y.id}');closeModal()" class="w-full text-left p-3 rounded-xl border ${y.id === state.currentYearId ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:bg-slate-50'}">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-semibold text-slate-800">${y.label}</p>
+              <p class="text-xs text-slate-500">${fmtDate(y.startDate)} – ${fmtDate(y.endDate)}</p>
+            </div>
+            ${y.id === state.currentYearId ? '<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full">NOW</span>' : (y.status === 'archived' ? '<span class="text-[10px] bg-slate-300 text-slate-700 px-2 py-0.5 rounded-full">🔒</span>' : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Active</span>')}
+          </div>
+        </button>
+      `).join("")}
+    </div>
+    <button onclick="openAddYearForm()" class="w-full mt-3 py-2 border-2 border-dashed border-slate-300 rounded-xl text-slate-600 text-sm">+ Add New Year</button>
+    <button onclick="closeModal()" class="w-full mt-2 py-2 bg-slate-100 rounded-xl text-sm">Close</button>
+  `);
+}
+
+/* =========================================================
+   RENDER
+   ========================================================= */
+function render() {
+  const view = VIEWS[route.name] || renderDashboard;
+  document.getElementById("app").innerHTML = view();
+}
+
+/* ---------- BOOT ---------- */
+if (state.currentUser) navigate("dashboard");
+else navigate("login");
+</script>
+</body>
+</html>
