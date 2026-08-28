@@ -6,7 +6,17 @@
 <meta name="theme-color" content="#4f46e5" />
 <title>School Fee Tracker — v0.2</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22School%20Fee%20Tracker%22%2C%22short_name%22%3A%22FeeTrack%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%234f46e5%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NSIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwIiB5PSI2NSIgZm9udC1zaXplPSI1MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPvCfjrU8L3RleHQ%2BPC9zdmc%2B%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
+<link rel="manifest" href="/manifest.json" />
+
+<!-- iOS: enables "Add to Home Screen" as a standalone installed app -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FeeTrack" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+<!-- Android/Chrome: standard PWA install icons -->
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -1982,6 +1992,13 @@ function render() {
 /* ---------- BOOT ---------- */
 if (state.currentUser) navigate("dashboard");
 else navigate("login");
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(err => console.error("SW registration failed", err));
+    });
+  }
 </script>
 </body>
 </html>
